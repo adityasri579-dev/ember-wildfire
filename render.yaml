@@ -5,7 +5,6 @@ services:
     plan: starter
     region: singapore
     healthCheckPath: /api/health
-    maxShutdownDelaySeconds: 30
     envVars:
       - key: NODE_ENV
         value: production
