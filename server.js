@@ -1344,7 +1344,7 @@ async function api(
       req,
       res,
       'external',
-      120,
+      600,
       60_000
     )
   ){
