@@ -1328,10 +1328,21 @@ async function api(
   ){
     return;
   }
-
+if(
+  u.pathname==='/api/weather'
+  &&
+  hitRateLimit(
+    req,
+    res,
+    'weather',
+    120,
+    60_000
+  )
+){
+  return;
+}
   if(
     [
-      '/api/weather',
       '/api/wildfires',
       '/api/firms/status',
       '/api/firms/hotspots',
