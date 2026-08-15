@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: ember-wildfire
+    runtime: docker
+    plan: starter
+    region: singapore
+    healthCheckPath: /api/health
+    maxShutdownDelaySeconds: 30
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: DATA_DIR
+        value: /app/data
+      - key: TRUST_PROXY
+        value: 1
+      - key: COOKIE_SECURE
+        value: 1
+      - key: FIRMS_MAP_KEY
+        sync: false
+    disk:
+      name: ember-data
+      mountPath: /app/data
+      sizeGB: 1

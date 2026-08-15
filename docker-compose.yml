@@ -1,0 +1,18 @@
+services:
+  ember:
+    build: .
+    ports:
+      - "8787:8787"
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 8787
+      DATA_DIR: /app/data
+      TRUST_PROXY: "0"
+      COOKIE_SECURE: "0"
+      FIRMS_MAP_KEY: ${FIRMS_MAP_KEY:-}
+    volumes:
+      - ember_data:/app/data
+    restart: unless-stopped
+volumes:
+  ember_data:

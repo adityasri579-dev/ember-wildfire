@@ -1,0 +1,3319 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ember — Predictive Wildfire Spread &amp; Evacuation Routing</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<style>
+:root{
+  color-scheme: dark;
+  --plane:#0d0d0d;
+  --surface-1:#1a1a19;
+  --surface-2:#212120;
+  --text-primary:#ffffff;
+  --text-secondary:#c3c2b7;
+  --text-muted:#898781;
+  --grid:#2c2c2a;
+  --axis:#383835;
+  --border:rgba(255,255,255,0.10);
+  --border-strong:rgba(255,255,255,0.18);
+  --series-1:#3987e5;
+  --series-2:#d95926;
+  --series-3:#199e70;
+  --good:#0ca30c;
+  --warning:#fab219;
+  --serious:#ec835a;
+  --critical:#d03b3b;
+  --radius:10px;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--plane); color:var(--text-primary);
+  font-family:var(--sans); font-size:13px; line-height:1.45;
+  -webkit-font-smoothing:antialiased;
+}
+button,input,select{font-family:inherit;font-size:inherit;color:inherit}
+h1,h2,h3{margin:0;font-weight:600}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:#343432;border-radius:6px}
+::-webkit-scrollbar-track{background:transparent}
+
+/* ---------- shell ---------- */
+#app{display:flex;flex-direction:column;height:100vh;min-height:0}
+header.top{
+  display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+  padding:10px 16px;border-bottom:1px solid var(--border);background:var(--surface-1);
+}
+.brand{display:flex;align-items:baseline;gap:10px;margin-right:auto}
+.brand h1{font-size:15px;letter-spacing:-0.01em}
+.brand .flame{
+  width:9px;height:9px;border-radius:50%;background:var(--serious);
+  box-shadow:0 0 10px 2px rgba(236,131,90,.75); display:inline-block;
+  animation:pulse 2.4s ease-in-out infinite;
+}
+@keyframes pulse{0%,100%{opacity:.5;transform:scale(.85)}50%{opacity:1;transform:scale(1.15)}}
+.brand p{margin:0;color:var(--text-muted);font-size:11.5px}
+
+.tiles{display:flex;gap:8px;flex-wrap:wrap}
+.tile{
+  min-width:104px;padding:6px 11px;border:1px solid var(--border);
+  border-radius:8px;background:var(--surface-2);
+}
+.tile .k{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted)}
+.tile .v{font-size:17px;font-weight:600;letter-spacing:-0.02em;line-height:1.25}
+.tile .v small{font-size:11px;font-weight:500;color:var(--text-secondary);margin-left:2px}
+.tile.alert .v{color:var(--critical)}
+.tile.warn .v{color:var(--warning)}
+.tile.ok .v{color:var(--good)}
+
+main{display:flex;flex:1;min-height:0}
+aside{
+  width:270px;flex:0 0 270px;background:var(--surface-1);overflow-y:auto;
+  border-right:1px solid var(--border);
+}
+aside.right{border-right:none;border-left:1px solid var(--border);width:320px;flex-basis:320px}
+#stage{flex:1;min-width:0;display:flex;flex-direction:column;background:#0a0a0a}
+
+/* ---------- panel bits ---------- */
+.sec{border-bottom:1px solid var(--border);padding:12px 14px}
+.sec > h2{
+  font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--text-muted);margin-bottom:10px;display:flex;align-items:center;gap:6px;
+}
+.sec > h2 .hint{margin-left:auto;text-transform:none;letter-spacing:0;font-size:10px;color:#5f5e5a}
+.field{margin-bottom:11px}
+.field:last-child{margin-bottom:0}
+.field label{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px;color:var(--text-secondary)}
+.field label .val{font-family:var(--mono);font-size:11.5px;color:var(--text-primary);font-variant-numeric:tabular-nums}
+input[type=range]{
+  -webkit-appearance:none;appearance:none;width:100%;height:3px;border-radius:2px;
+  background:var(--axis);outline:none;margin:6px 0 0;
+}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:13px;height:13px;border-radius:50%;
+  background:var(--text-primary);cursor:pointer;border:2px solid var(--surface-1);
+  box-shadow:0 0 0 1px var(--border-strong);
+}
+input[type=range]::-moz-range-thumb{
+  width:13px;height:13px;border-radius:50%;background:var(--text-primary);
+  cursor:pointer;border:2px solid var(--surface-1);
+}
+select{
+  width:100%;background:var(--surface-2);border:1px solid var(--border);
+  border-radius:7px;padding:6px 8px;
+}
+.btn{
+  background:var(--surface-2);border:1px solid var(--border);border-radius:7px;
+  padding:7px 10px;cursor:pointer;transition:.12s;color:var(--text-secondary);
+}
+.btn:hover{background:#2a2a28;color:var(--text-primary);border-color:var(--border-strong)}
+.btn.primary{background:var(--series-1);border-color:var(--series-1);color:#fff;font-weight:600}
+.btn.primary:hover{background:#2a78d6}
+.btn.on{background:#243b57;border-color:#31578a;color:#cfe3ff}
+.btnrow{display:flex;gap:6px}
+.btnrow .btn{flex:1;text-align:center}
+.chips{display:flex;flex-wrap:wrap;gap:5px}
+.chip{
+  padding:4px 8px;border:1px solid var(--border);border-radius:999px;
+  background:var(--surface-2);cursor:pointer;font-size:11.5px;color:var(--text-secondary);
+}
+.chip.on{background:#243b57;border-color:#31578a;color:#cfe3ff}
+.toggles{display:flex;flex-direction:column;gap:1px}
+.tg{display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:6px;cursor:pointer}
+.tg:hover{background:#242422}
+.tg input{accent-color:var(--series-1);margin:0}
+.tg .sw{width:11px;height:11px;border-radius:3px;flex:0 0 11px}
+.tg span{color:var(--text-secondary)}
+
+/* compass */
+.compass{display:flex;align-items:center;gap:12px}
+.dial{
+  width:78px;height:78px;flex:0 0 78px;border-radius:50%;position:relative;cursor:grab;
+  background:radial-gradient(circle at 50% 50%, #232321 0%, #191918 70%);
+  border:1px solid var(--border-strong);touch-action:none;
+}
+.dial:active{cursor:grabbing}
+.dial .tickN{position:absolute;top:3px;left:50%;transform:translateX(-50%);font-size:9px;color:var(--text-muted)}
+.dial .needle{
+  position:absolute;left:50%;top:50%;width:2px;height:30px;background:linear-gradient(#ec835a,#d03b3b);
+  transform-origin:50% 100%;border-radius:2px;margin-left:-1px;margin-top:-30px;
+}
+.dial .hub{position:absolute;left:50%;top:50%;width:7px;height:7px;margin:-3.5px 0 0 -3.5px;border-radius:50%;background:var(--text-primary)}
+.dial .arrowhead{position:absolute;left:50%;top:50%;width:0;height:0;margin-left:-4px;margin-top:-34px;
+  border-left:4px solid transparent;border-right:4px solid transparent;border-bottom:7px solid #ec835a;transform-origin:50% 34px}
+
+/* ---------- map ---------- */
+#mapwrap{flex:1;position:relative;min-height:0;overflow:hidden}
+#map{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:crosshair}
+.overlay{position:absolute;pointer-events:none;font-size:11px}
+#legend{
+  right:10px;top:10px;background:rgba(16,16,15,.82);backdrop-filter:blur(8px);
+  border:1px solid var(--border);border-radius:9px;padding:9px 11px;max-width:184px;
+}
+#legend h3{font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px}
+#legend .row{display:flex;align-items:center;gap:7px;margin-bottom:3px;color:var(--text-secondary)}
+#legend .sw{width:11px;height:11px;border-radius:3px;flex:0 0 11px}
+#legend .ramp{height:9px;border-radius:3px;margin:4px 0 2px}
+#legend .rampL{display:flex;justify-content:space-between;color:var(--text-muted);font-size:9.5px}
+#scalebar{left:12px;bottom:12px;color:var(--text-secondary)}
+#scalebar .bar{height:4px;border-bottom:2px solid var(--text-secondary);border-left:2px solid var(--text-secondary);border-right:2px solid var(--text-secondary)}
+#tip{
+  position:absolute;pointer-events:none;background:rgba(16,16,15,.94);border:1px solid var(--border-strong);
+  border-radius:8px;padding:7px 9px;font-size:11px;display:none;z-index:5;max-width:220px;
+  box-shadow:0 8px 24px rgba(0,0,0,.5);
+}
+#tip .t{font-weight:600;margin-bottom:3px}
+#tip .r{display:flex;justify-content:space-between;gap:14px;color:var(--text-secondary)}
+#tip .r b{font-weight:500;color:var(--text-primary);font-family:var(--mono);font-variant-numeric:tabular-nums}
+#busy{
+  position:absolute;inset:0;display:none;align-items:center;justify-content:center;
+  background:rgba(10,10,10,.55);backdrop-filter:blur(2px);z-index:6;font-size:12px;color:var(--text-secondary)
+}
+#busy.on{display:flex}
+#clockbadge{
+  left:12px;top:10px;background:rgba(16,16,15,.82);backdrop-filter:blur(8px);
+  border:1px solid var(--border);border-radius:9px;padding:6px 10px;
+}
+#clockbadge .big{font-size:19px;font-weight:600;font-family:var(--mono);letter-spacing:-.02em}
+#clockbadge .sub{font-size:10px;color:var(--text-muted);letter-spacing:.05em;text-transform:uppercase}
+
+/* ---------- timeline ---------- */
+#timeline{
+  border-top:1px solid var(--border);background:var(--surface-1);padding:9px 14px 11px;
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+}
+#timeline .scrub{flex:1;min-width:220px;position:relative}
+#timeline .scrub input{width:100%}
+#tlmarks{position:relative;height:13px;margin-top:2px}
+#tlmarks .m{position:absolute;transform:translateX(-50%);font-size:9.5px;color:var(--text-muted);font-variant-numeric:tabular-nums}
+#tlrisk{position:relative;height:5px;border-radius:3px;background:var(--axis);overflow:hidden;margin-bottom:3px}
+#tlrisk i{position:absolute;top:0;bottom:0;width:2px;border-radius:2px}
+.playbtn{
+  width:34px;height:34px;border-radius:50%;display:grid;place-items:center;
+  background:var(--series-1);border:none;cursor:pointer;color:#fff;flex:0 0 34px;
+}
+.playbtn:hover{background:#2a78d6}
+.spd{display:flex;gap:4px}
+
+/* ---------- right panel ---------- */
+.zone{
+  border:1px solid var(--border);border-left-width:3px;border-radius:8px;
+  padding:8px 10px;margin-bottom:7px;background:var(--surface-2);cursor:pointer;transition:.12s;
+}
+.zone:hover{border-color:var(--border-strong);background:#262624}
+.zone.sel{background:#242c38;border-color:#3d5878}
+.zone .hd{display:flex;align-items:baseline;gap:7px}
+.zone .nm{font-weight:600}
+.zone .pop{margin-left:auto;color:var(--text-muted);font-size:11px;font-variant-numeric:tabular-nums}
+.zone .st{
+  font-size:9.5px;font-weight:700;letter-spacing:.07em;padding:1px 6px;border-radius:4px;
+  display:inline-flex;align-items:center;gap:4px;
+}
+.zone .bars{margin-top:6px;display:flex;flex-direction:column;gap:4px}
+.zone .bar{display:flex;align-items:center;gap:7px;font-size:10.5px;color:var(--text-muted)}
+.zone .bar .track{flex:1;height:4px;border-radius:3px;background:var(--axis);overflow:hidden}
+.zone .bar .fill{height:100%;border-radius:3px}
+.zone .bar .num{width:66px;text-align:right;font-family:var(--mono);color:var(--text-secondary);font-variant-numeric:tabular-nums}
+.zone .warnmsg{margin-top:5px;font-size:10.5px;color:var(--critical);display:flex;gap:5px;align-items:flex-start}
+
+.chart{margin-bottom:14px}
+.chart .ttl{font-size:11.5px;color:var(--text-secondary);margin-bottom:1px;font-weight:600}
+.chart .sub{font-size:10px;color:var(--text-muted);margin-bottom:5px}
+.chart svg{display:block;width:100%;overflow:visible}
+table.tv{width:100%;border-collapse:collapse;font-size:10.5px;font-variant-numeric:tabular-nums}
+table.tv th{text-align:right;color:var(--text-muted);font-weight:500;padding:2px 4px;border-bottom:1px solid var(--axis)}
+table.tv th:first-child,table.tv td:first-child{text-align:left}
+table.tv td{padding:2px 4px;color:var(--text-secondary);border-bottom:1px solid #202020}
+.tvwrap{display:none;max-height:190px;overflow:auto}
+.tvwrap.on{display:block}
+.linkbtn{background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:10px;padding:0;text-decoration:underline;text-underline-offset:2px}
+.linkbtn:hover{color:var(--text-secondary)}
+.note{font-size:10.5px;color:var(--text-muted);line-height:1.5}
+.kbd{font-family:var(--mono);font-size:10px;background:var(--surface-2);border:1px solid var(--border);border-radius:4px;padding:0 4px}
+
+@media (max-width:1180px){
+  aside{width:230px;flex-basis:230px}
+  aside.right{width:270px;flex-basis:270px}
+}
+
+/* real-world location picker */
+.location-card{display:grid;gap:7px}
+.location-search{display:flex;gap:6px}
+.location-search input{min-width:0;flex:1;background:var(--input);border:1px solid var(--border);color:var(--text);border-radius:4px;padding:7px 8px;font:11px var(--sans)}
+.location-meta{font:10.5px var(--mono);color:var(--text-secondary);line-height:1.55;word-break:break-word}
+.location-actions{display:flex;gap:6px}.location-actions .btn{flex:1}
+.geo-warning{margin-top:6px;padding:7px 8px;border:1px solid rgba(250,178,25,.35);background:rgba(250,178,25,.06);border-radius:4px;color:var(--text-muted);font-size:9.5px;line-height:1.45}
+#geoModal{position:fixed;inset:0;background:rgba(5,9,11,.78);z-index:100;display:none;align-items:center;justify-content:center;padding:22px}
+#geoModal.on{display:flex}.geo-dialog{width:min(880px,95vw);height:min(680px,90vh);background:var(--panel);border:1px solid var(--border);border-radius:8px;box-shadow:0 22px 70px #000;display:flex;flex-direction:column;overflow:hidden}
+.geo-head{display:flex;gap:10px;align-items:center;padding:11px 13px;border-bottom:1px solid var(--border)}.geo-head strong{font-size:13px}.geo-head .sub{font-size:10px;color:var(--text-muted);margin-left:4px}.geo-head button{margin-left:auto}
+#geoMap{flex:1;min-height:360px;background:#172026}.geo-foot{padding:10px 13px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:center}.geo-foot .readout{font:10px var(--mono);color:var(--text-secondary);flex:1}.geo-foot .btn{white-space:nowrap}
+.leaflet-container{font-family:var(--sans)}
+
+@media (max-width:900px){
+  main{flex-direction:column;overflow:auto}
+  aside,aside.right{width:auto;flex-basis:auto;border:none;border-top:1px solid var(--border)}
+  /* the map is the point — keep it above the controls on a phone */
+  #stage{min-height:66vh;order:-1}
+  header.top{position:sticky;top:0;z-index:9}
+  #legend{max-width:150px;font-size:10px}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <header class="top">
+    <div class="brand">
+      <span class="flame"></span>
+      <h1>Ember</h1>
+      <p>predictive wildfire spread &amp; evacuation routing</p>
+    </div>
+    <div class="tiles" id="tiles"></div>
+  </header>
+
+  <main>
+    <aside class="left" id="leftpanel"></aside>
+
+    <section id="stage">
+      <div id="mapwrap">
+        <canvas id="map"></canvas>
+        <div class="overlay" id="clockbadge"><div class="big" id="clockBig">00:00</div><div class="sub" id="clockSub">since ignition</div></div>
+        <div class="overlay" id="legend"></div>
+        <div class="overlay" id="scalebar"><div class="bar" id="sbBar"></div><div id="sbTxt"></div></div>
+        <div id="tip"></div>
+        <div id="busy">computing…</div>
+      </div>
+      <div id="timeline">
+        <button class="playbtn" id="play" title="Play / pause (space)">
+          <svg width="13" height="13" viewBox="0 0 13 13" id="playIcon"><path d="M3 1.5 L11 6.5 L3 11.5 Z" fill="currentColor"/></svg>
+        </button>
+        <div class="scrub">
+          <div id="tlrisk" title="Fire reaches a community"></div>
+          <input type="range" id="tSlider" min="0" max="1440" step="5" value="0">
+          <div id="tlmarks"></div>
+        </div>
+        <div class="spd" id="spd"></div>
+      </div>
+    </section>
+
+    <aside class="right" id="rightpanel"></aside>
+  </main>
+</div>
+<div id="geoModal" aria-hidden="true">
+  <div class="geo-dialog" role="dialog" aria-modal="true" aria-label="Choose real-world simulation area">
+    <div class="geo-head"><strong>Choose real-world area</strong><span class="sub">OpenStreetMap · click to reposition the 7.68 km simulation box</span><button class="btn" id="geoClose">Close</button></div>
+    <div id="geoMap"></div>
+    <div class="geo-foot"><div class="readout" id="geoReadout">—</div><button class="btn" id="geoSetIgnition">Set ignition here</button><button class="btn on" id="geoApply">Use this area</button></div>
+  </div>
+</div>
+<script>
+"use strict";
+/* =====================================================================
+   EMBER — predictive wildfire spread & evacuation routing
+   Single-file simulation. Sections:
+     10 core      — constants, RNG, noise, terrain & fuel synthesis
+     20 fire      — Rothermel surface spread + elliptical CA / arrival-time field
+     30 roads     — synthetic fallback + OpenStreetMap road graph
+     40 evac      — time-dependent routing, closures, congestion, zones
+     50 render    — canvas layers
+     60 ui        — panels, timeline, charts
+   ===================================================================== */
+
+/* ---------------------------------------------------------------- 10 core */
+const N = 240;              // grid cells per side
+const CELLM = 32;           // metres per cell  -> 7.7 km x 7.7 km domain
+const HORIZON = 1440;       // simulation horizon, minutes (24 h)
+const INF = Infinity;
+
+const idx = (x, y) => y * N + x;
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp = (a, b, t) => a + (b - a) * t;
+const smooth = t => t * t * (3 - 2 * t);
+const D2R = Math.PI / 180;
+
+/* deterministic RNG (mulberry32) so a seed fully reproduces a scenario */
+function rng(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+/* stable hash for per-cell stochastic decisions (spotting) */
+function hash2(x, y, s) {
+  let h = x * 374761393 + y * 668265263 + s * 2246822519;
+  h = (h ^ h >>> 13) * 1274126177;
+  return ((h ^ h >>> 16) >>> 0) / 4294967296;
+}
+
+/* value-noise fBm ------------------------------------------------------- */
+function noiseField(seed, freq, octaves, persistence) {
+  const r = rng(seed);
+  const P = 256, perm = new Float32Array(P * P);
+  for (let i = 0; i < P * P; i++) perm[i] = r();
+  const at = (ix, iy) => perm[((iy & (P - 1)) * P) + (ix & (P - 1))];
+  const val = (x, y) => {
+    const x0 = Math.floor(x), y0 = Math.floor(y);
+    const tx = smooth(x - x0), ty = smooth(y - y0);
+    return lerp(lerp(at(x0, y0), at(x0 + 1, y0), tx),
+                lerp(at(x0, y0 + 1), at(x0 + 1, y0 + 1), tx), ty);
+  };
+  return (x, y) => {
+    let amp = 1, f = freq, sum = 0, norm = 0;
+    for (let o = 0; o < octaves; o++) {
+      sum += amp * val(x * f, y * f);
+      norm += amp; amp *= persistence; f *= 2;
+    }
+    return sum / norm;
+  };
+}
+
+
+/* ------------------------------------------------ geographic anchoring  */
+/* The simulation still operates in a local metre grid. These helpers map
+   that grid to WGS84 so a scenario can be positioned on the real Earth
+   without changing the fire solver. North is the top of the raster. */
+const DOMAIN_M = N * CELLM;
+function metersPerDegLon(lat) { return 111320 * Math.cos(lat * D2R); }
+function cellToLatLon(x, y) {
+  const east = (x + 0.5 - N / 2) * CELLM;
+  const north = (N / 2 - (y + 0.5)) * CELLM;
+  return {
+    lat: scenario.centerLat + north / 111320,
+    lon: scenario.centerLon + east / Math.max(1000, metersPerDegLon(scenario.centerLat))
+  };
+}
+function latLonToCell(lat, lon) {
+  const east = (lon - scenario.centerLon) * metersPerDegLon(scenario.centerLat);
+  const north = (lat - scenario.centerLat) * 111320;
+  return { x: N / 2 + east / CELLM - 0.5, y: N / 2 - north / CELLM - 0.5 };
+}
+function geoBounds() {
+  const half = DOMAIN_M / 2;
+  const dLat = half / 111320;
+  const dLon = half / Math.max(1000, metersPerDegLon(scenario.centerLat));
+  return [[scenario.centerLat - dLat, scenario.centerLon - dLon], [scenario.centerLat + dLat, scenario.centerLon + dLon]];
+}
+function seedFromGeo(lat, lon) {
+  let a = Math.round((lat + 90) * 1e5) | 0, b = Math.round((lon + 180) * 1e5) | 0;
+  let h = Math.imul(a ^ (b >>> 1), 0x45d9f3b) ^ Math.imul(b ^ (a >>> 1), 0x119de1f3);
+  h ^= h >>> 16; return h >>> 0;
+}
+
+/* ---------------------------------------------------------------- fuels  */
+/* Anderson-13 style surface fuel models. Loads lb/ft^2, depth ft,
+   SAV ft^-1, Mx = moisture of extinction (fraction), wrf = wind
+   reduction factor from 20-ft wind to midflame wind.                       */
+const FUELS = [
+  { id: 0, key: 'WATER',  name: 'Water',              burn: false, col: [ 32, 58, 82] },
+  { id: 1, key: 'ROCK',   name: 'Rock / barren',      burn: false, col: [104,102, 96] },
+  { id: 2, key: 'URBAN',  name: 'Urban / developed',  burn: false, col: [ 96, 88, 92] },
+  { id: 3, key: 'AG',     name: 'Irrigated farmland', burn: false, col: [ 74, 96, 56] },
+  { id: 4, key: 'GR',     name: 'Grass (FM1)',        burn: true,  col: [166,152, 88],
+    w0: 0.034, depth: 1.0, sav: 3500, mx: 0.12, wrf: 0.42 },
+  { id: 5, key: 'GS',     name: 'Grass–shrub (FM2)',  burn: true,  col: [148,140, 78],
+    w0: 0.092, depth: 1.0, sav: 2784, mx: 0.15, wrf: 0.38 },
+  { id: 6, key: 'SH',     name: 'Brush (FM5)',        burn: true,  col: [104,116, 66],
+    w0: 0.080, depth: 2.0, sav: 2000, mx: 0.20, wrf: 0.33 },
+  { id: 7, key: 'CH',     name: 'Chaparral (FM4)',    burn: true,  col: [122,104, 58],
+    w0: 0.230, depth: 6.0, sav: 2000, mx: 0.20, wrf: 0.30 },
+  { id: 8, key: 'TU',     name: 'Timber–understory (FM10)', burn: true, col: [ 62, 88, 56],
+    w0: 0.138, depth: 1.0, sav: 1600, mx: 0.25, wrf: 0.20 },
+  { id: 9, key: 'TL',     name: 'Closed timber (FM8)', burn: true, col: [ 44, 70, 48],
+    w0: 0.069, depth: 0.2, sav: 2000, mx: 0.30, wrf: 0.15 }
+];
+const F_WATER = 0, F_ROCK = 1, F_URBAN = 2, F_AG = 3;
+
+/* ------------------------------------------------------- landscape build */
+const land = {
+  elev: new Float32Array(N * N),      // metres
+  slope: new Float32Array(N * N),     // rise/run (tan)
+  aspect: new Float32Array(N * N),    // radians, 0 = upslope points East, CCW
+  fuel: new Uint8Array(N * N),
+  shade: new Float32Array(N * N),     // hillshade 0..1
+  canopy: new Float32Array(N * N),    // 0..1 cover, damps midflame wind
+  minE: 0, maxE: 0
+};
+
+function buildLandscape(seed) {
+  const nE = noiseField(seed, 0.016, 6, 0.52);
+  const nRidge = noiseField(seed + 91, 0.009, 4, 0.55);
+  const nF = noiseField(seed + 17, 0.05, 4, 0.55);
+  const nW = noiseField(seed + 43, 0.03, 3, 0.5);
+
+  const E = land.elev;
+  let mn = 1e9, mx = -1e9;
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    // ridged component gives believable spines & drainages
+    const rg = 1 - Math.abs(nRidge(x, y) * 2 - 1);
+    let h = nE(x, y) * 0.62 + rg * rg * 0.52;
+    // gentle regional tilt: high country in the NE, valley floor to the SW
+    h += (x / N) * 0.10 + (1 - y / N) * 0.12;
+    const e = h * 820 + 210;
+    E[idx(x, y)] = e;
+    if (e < mn) mn = e; if (e > mx) mx = e;
+  }
+  land.minE = mn; land.maxE = mx;
+
+  // smoothing passes — a raw noise field has stair-stepping that turns into
+  // implausible cliff faces once you differentiate it for slope
+  for (let pass = 0; pass < 3; pass++) {
+    const tmp = new Float32Array(E);
+    for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) {
+      let s = 0;
+      for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) s += tmp[idx(x + i, y + j)];
+      E[idx(x, y)] = s / 9;
+    }
+  }
+
+  // slope, aspect, hillshade (sun from NW, 45deg altitude)
+  const sunAz = 315 * D2R, sunAlt = 45 * D2R;
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const xm = Math.max(0, x - 1), xp = Math.min(N - 1, x + 1);
+    const ym = Math.max(0, y - 1), yp = Math.min(N - 1, y + 1);
+    const dzdx = (E[idx(xp, y)] - E[idx(xm, y)]) / ((xp - xm) * CELLM);
+    const dzdy = (E[idx(x, yp)] - E[idx(x, ym)]) / ((yp - ym) * CELLM);
+    const sl = Math.sqrt(dzdx * dzdx + dzdy * dzdy);
+    land.slope[idx(x, y)] = sl;
+    // upslope direction in screen space (+x east, +y south); gradient points uphill
+    land.aspect[idx(x, y)] = Math.atan2(dzdy, dzdx);
+    const slopeR = Math.atan(sl);
+    const aspR = Math.atan2(dzdy, dzdx);
+    let hs = Math.cos(slopeR) * Math.sin(sunAlt) +
+             Math.sin(slopeR) * Math.cos(sunAlt) * Math.cos(sunAz - aspR - Math.PI / 2);
+    land.shade[idx(x, y)] = clamp(hs, 0, 1);
+  }
+
+  // fuels from elevation band + moisture proxy + noise
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const i = idx(x, y);
+    const e = (E[i] - mn) / (mx - mn);
+    const w = nW(x, y), f = nF(x, y), sl = land.slope[i];
+    let fm;
+    if (w < 0.30 && e < 0.24 && sl < 0.05) fm = F_WATER;
+    else if (e > 0.90 && sl > 0.32) fm = F_ROCK;
+    else if (e < 0.22 && sl < 0.06 && f > 0.58) fm = F_AG;
+    else if (e < 0.34) fm = f > 0.52 ? 5 : 4;              // valley grass / grass-shrub
+    else if (e < 0.52) fm = f > 0.60 ? 7 : (f > 0.34 ? 6 : 5); // foothill brush & chaparral
+    else if (e < 0.76) fm = f > 0.48 ? 8 : 6;              // mixed timber / brush
+    else fm = f > 0.42 ? 9 : 8;                            // upper-elevation timber
+    land.fuel[i] = fm;
+    land.canopy[i] = fm === 8 ? 0.7 : fm === 9 ? 0.85 : fm === 7 ? 0.4 : fm === 6 ? 0.25 : 0.05;
+  }
+}
+
+
+/* ========================================================= Stage 2 data  */
+/* Real-world landscape adapter. Elevation comes from the public Mapzen/
+   AWS Terrarium tile dataset. Fuel classes are a planning proxy inferred
+   from OpenStreetMap landuse/natural polygons returned by Overpass.
+
+   Important: OSM is not a calibrated wildfire fuel raster. Untagged cells
+   fall back to grass-shrub so the simulator remains runnable, and the UI
+   reports mapped coverage. This keeps the hackathon build honest while
+   replacing the synthetic elevation surface with measured geographic data. */
+const realLandscape = {
+  ready: false,
+  key: '',
+  loading: false,
+  elevationSource: 'synthetic',
+  fuelSource: 'synthetic',
+  osmCoverage: 0,
+  lastError: '',
+  loadedAt: 0
+};
+
+const TERRARIUM_Z = 12;
+function slippyXY(lat, lon, z=TERRARIUM_Z) {
+  const n = 2 ** z;
+  const x = (lon + 180) / 360 * n;
+  const lr = clamp(lat, -85.05112878, 85.05112878) * D2R;
+  const y = (1 - Math.asinh(Math.tan(lr)) / Math.PI) / 2 * n;
+  return { x, y };
+}
+function realLandscapeKey() {
+  return `${scenario.centerLat.toFixed(5)},${scenario.centerLon.toFixed(5)}`;
+}
+async function fetchTerrariumTile(z, x, y) {
+  const n = 2 ** z;
+  x = ((x % n) + n) % n;
+  if (y < 0 || y >= n) throw new Error('Elevation tile outside Web Mercator coverage');
+  const urls = [
+    `/api/terrain/${z}/${x}/${y}.png`
+  ];
+  let err;
+  for (const url of urls) {
+    try {
+      const r = await fetch(url, { mode: 'cors', cache: 'force-cache' });
+      if (!r.ok) throw new Error(`elevation HTTP ${r.status}`);
+      const blob = await r.blob();
+      const bmp = await createImageBitmap(blob);
+      const c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height;
+      const ctx = c.getContext('2d', { willReadFrequently: true }); ctx.drawImage(bmp, 0, 0);
+      const data = ctx.getImageData(0, 0, c.width, c.height).data;
+      if (bmp.close) bmp.close();
+      return { data, w: c.width, h: c.height };
+    } catch (e) { err = e; }
+  }
+  throw err || new Error('Unable to fetch elevation tile');
+}
+async function loadRealElevation() {
+  const tileCache = new Map();
+  const need = new Set();
+  // Determine the small set of z12 tiles touched by cell centers.
+  for (let y=0; y<N; y+=Math.max(1,Math.floor(N/12))) for (let x=0; x<N; x+=Math.max(1,Math.floor(N/12))) {
+    const g=cellToLatLon(x,y), t=slippyXY(g.lat,g.lon);
+    need.add(`${Math.floor(t.x)},${Math.floor(t.y)}`);
+  }
+  // Always include exact corners and center to avoid edge misses.
+  for (const [lat,lon] of [...geoBounds(), [scenario.centerLat,scenario.centerLon]]) {
+    const t=slippyXY(lat,lon); need.add(`${Math.floor(t.x)},${Math.floor(t.y)}`);
+  }
+  await Promise.all([...need].map(async k => {
+    const [x,y]=k.split(',').map(Number); tileCache.set(k, await fetchTerrariumTile(TERRARIUM_Z,x,y));
+  }));
+  let mn=1e9,mx=-1e9;
+  for (let y=0;y<N;y++) for (let x=0;x<N;x++) {
+    const g=cellToLatLon(x,y), t=slippyXY(g.lat,g.lon);
+    const tx=Math.floor(t.x), ty=Math.floor(t.y), tile=tileCache.get(`${tx},${ty}`);
+    if (!tile) throw new Error('Missing elevation tile');
+    const px=clamp(Math.floor((t.x-tx)*tile.w),0,tile.w-1);
+    const py=clamp(Math.floor((t.y-ty)*tile.h),0,tile.h-1);
+    const o=(py*tile.w+px)*4, d=tile.data;
+    const e=d[o]*256+d[o+1]+d[o+2]/256-32768;
+    land.elev[idx(x,y)]=e; mn=Math.min(mn,e); mx=Math.max(mx,e);
+  }
+  land.minE=mn; land.maxE=mx;
+}
+
+function deriveTerrainFromElevation() {
+  const E=land.elev;
+  const sunAz=315*D2R, sunAlt=45*D2R;
+  for (let y=0;y<N;y++) for (let x=0;x<N;x++) {
+    const xm=Math.max(0,x-1),xp=Math.min(N-1,x+1),ym=Math.max(0,y-1),yp=Math.min(N-1,y+1);
+    const dzdx=(E[idx(xp,y)]-E[idx(xm,y)])/Math.max(CELLM,(xp-xm)*CELLM);
+    const dzdy=(E[idx(x,yp)]-E[idx(x,ym)])/Math.max(CELLM,(yp-ym)*CELLM);
+    const sl=Math.sqrt(dzdx*dzdx+dzdy*dzdy), asp=Math.atan2(dzdy,dzdx);
+    land.slope[idx(x,y)]=sl; land.aspect[idx(x,y)]=asp;
+    const slopeR=Math.atan(sl);
+    const hs=Math.cos(slopeR)*Math.sin(sunAlt)+Math.sin(slopeR)*Math.cos(sunAlt)*Math.cos(sunAz-asp-Math.PI/2);
+    land.shade[idx(x,y)]=clamp(hs,0,1);
+  }
+}
+
+function osmFuelFromTags(t) {
+  const natural=t.natural||'', landuse=t.landuse||'', leisure=t.leisure||'';
+  if (natural==='water' || natural==='wetland' || landuse==='reservoir' || landuse==='basin') return F_WATER;
+  if (natural==='bare_rock' || natural==='scree' || natural==='shingle' || landuse==='quarry') return F_ROCK;
+  if (['residential','commercial','industrial','retail','construction'].includes(landuse)) return F_URBAN;
+  if (['farmland','farmyard','orchard','vineyard','greenhouse_horticulture'].includes(landuse)) return F_AG;
+  if (natural==='wood' || landuse==='forest') return 9;
+  if (natural==='scrub' || natural==='heath') return 6;
+  if (natural==='grassland' || landuse==='grass' || landuse==='meadow' || leisure==='park') return 4;
+  return null;
+}
+function fuelCanopy(fm) { return fm===8?0.7:fm===9?0.85:fm===7?0.4:fm===6?0.25:fm===5?0.12:0.05; }
+function rasterizeOsmFuel(elements) {
+  const c=document.createElement('canvas'); c.width=N; c.height=N;
+  const ctx=c.getContext('2d', { willReadFrequently:true });
+  // Untagged areas remain an explicit proxy rather than masquerading as OSM data.
+  ctx.fillStyle='rgb(5,0,0)'; ctx.fillRect(0,0,N,N); // FM5 + unmapped marker=0
+  const tagged=document.createElement('canvas'); tagged.width=N; tagged.height=N;
+  const tc=tagged.getContext('2d',{willReadFrequently:true}); tc.clearRect(0,0,N,N);
+  // broad vegetation first, hard non-burnable/developed surfaces last.
+  const rows=[];
+  for (const e of elements||[]) {
+    const fm=osmFuelFromTags(e.tags||{}); if (fm===null || !e.geometry || e.geometry.length<3) continue;
+    rows.push({fm,g:e.geometry});
+  }
+  rows.sort((a,b)=>((a.fm<=3)?1:0)-((b.fm<=3)?1:0));
+  for (const r of rows) {
+    ctx.beginPath(); tc.beginPath(); let started=false;
+    for (const q of r.g) {
+      const p=latLonToCell(q.lat,q.lon);
+      if (!started) { ctx.moveTo(p.x,p.y); tc.moveTo(p.x,p.y); started=true; }
+      else { ctx.lineTo(p.x,p.y); tc.lineTo(p.x,p.y); }
+    }
+    ctx.closePath(); tc.closePath();
+    ctx.fillStyle=`rgb(${r.fm},0,0)`; ctx.fill();
+    tc.fillStyle='rgba(255,255,255,1)'; tc.fill();
+  }
+  const d=ctx.getImageData(0,0,N,N).data, td=tc.getImageData(0,0,N,N).data;
+  let mapped=0;
+  for (let i=0;i<N*N;i++) {
+    const fm=d[i*4]; land.fuel[i]=fm; land.canopy[i]=fuelCanopy(fm);
+    if (td[i*4]>0) mapped++;
+  }
+  return mapped/(N*N);
+}
+async function loadOsmFuelProxy() {
+  const b=geoBounds(), s=b[0][0], w=b[0][1], n=b[1][0], e=b[1][1];
+  const q=`[out:json][timeout:25];(way[landuse](${s},${w},${n},${e});way[natural](${s},${w},${n},${e});way[leisure=park](${s},${w},${n},${e}););out tags geom;`;
+  const endpoints=['/api/overpass'];
+  let last;
+  for (const ep of endpoints) {
+    try {
+      const r=await fetch(ep,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:q})});
+      if(!r.ok) throw new Error(`OSM HTTP ${r.status}`);
+      const j=await r.json(); return rasterizeOsmFuel(j.elements||[]);
+    } catch(e) { last=e; }
+  }
+  throw last||new Error('OpenStreetMap land-cover query failed');
+}
+async function loadRealLandscape(onStatus) {
+  const key=realLandscapeKey();
+  if(realLandscape.ready && realLandscape.key===key) return true;
+  if(realLandscape.loading) return false;
+  realLandscape.loading=true; realLandscape.lastError='';
+  try {
+    onStatus&&onStatus('Loading real elevation…');
+    await loadRealElevation();
+    deriveTerrainFromElevation();
+    realLandscape.elevationSource='AWS Terrain Tiles';
+    onStatus&&onStatus('Loading OSM land cover…');
+    try {
+      realLandscape.osmCoverage=await loadOsmFuelProxy();
+      realLandscape.fuelSource='OpenStreetMap proxy';
+    } catch(e) {
+      // Preserve real elevation even if Overpass is temporarily busy.
+      const nF=noiseField(scenario.seed+17,0.05,4,0.55);
+      for(let y=0;y<N;y++) for(let x=0;x<N;x++) {
+        const i=idx(x,y), f=nF(x,y), sl=land.slope[i];
+        const fm=sl>0.55?F_ROCK:(f>0.62?6:(f>0.34?5:4));
+        land.fuel[i]=fm; land.canopy[i]=fuelCanopy(fm);
+      }
+      realLandscape.osmCoverage=0; realLandscape.fuelSource='synthetic fallback';
+      realLandscape.lastError='OSM land cover unavailable: '+e.message;
+    }
+    realLandscape.ready=true; realLandscape.key=key; realLandscape.loadedAt=Date.now();
+    return true;
+  } catch(e) {
+    realLandscape.ready=false; realLandscape.key=''; realLandscape.lastError=e.message||String(e);
+    throw e;
+  } finally { realLandscape.loading=false; }
+}
+function invalidateRealLandscape() { realLandscape.ready=false; realLandscape.key=''; }
+/* ---------------------------------------------------------------- 20 fire */
+/* Rothermel (1972) surface fire spread, one dead-fuel size class.
+   Returns everything needed to build the elliptical spread ellipse.        */
+const MPS_TO_FTMIN = 196.85;
+const FTMIN_TO_MMIN = 0.3048;
+
+/* cache of the packing-ratio terms, which depend only on the fuel model */
+const fuelStatic = FUELS.map(f => {
+  if (!f.burn) return null;
+  const rhoP = 32, ST = 0.0555, SE = 0.01, h = 8000;
+  const rhoB = f.w0 / f.depth;              // oven-dry bulk density lb/ft^3
+  const beta = rhoB / rhoP;                 // packing ratio
+  const betaOp = 3.348 * Math.pow(f.sav, -0.8189);
+  const A = 133 * Math.pow(f.sav, -0.7913);
+  const gMax = Math.pow(f.sav, 1.5) / (495 + 0.0594 * Math.pow(f.sav, 1.5));
+  const gamma = gMax * Math.pow(beta / betaOp, A) * Math.exp(A * (1 - beta / betaOp));
+  const wn = f.w0 * (1 - ST);               // net fuel load
+  const etaS = Math.min(1, 0.174 * Math.pow(SE, -0.19));
+  const xi = Math.exp((0.792 + 0.681 * Math.sqrt(f.sav)) * (beta + 0.1)) /
+             (192 + 0.2595 * f.sav);
+  const eps = Math.exp(-138 / f.sav);       // effective heating number
+  const C = 7.47 * Math.exp(-0.133 * Math.pow(f.sav, 0.55));
+  const B = 0.02526 * Math.pow(f.sav, 0.54);
+  const E = 0.715 * Math.exp(-3.59e-4 * f.sav);
+  const phiSlopeK = 5.275 * Math.pow(beta, -0.3);
+  const windK = C * Math.pow(beta / betaOp, -E);
+  return { rhoB, beta, betaOp, gamma, wn, etaS, xi, eps, C, B, E, h,
+           phiSlopeK, windK, maxPhiW: 0 };
+});
+
+/* no-wind, no-slope reaction & spread terms for a given moisture */
+function baseROS(fm, Mf) {
+  const f = FUELS[fm], s = fuelStatic[fm];
+  if (!s) return null;
+  const rm = Math.min(Mf / f.mx, 1);
+  const etaM = 1 - 2.59 * rm + 5.11 * rm * rm - 3.52 * rm * rm * rm;
+  if (etaM <= 0) return null;                       // above moisture of extinction
+  const IR = s.gamma * s.wn * s.h * etaM * s.etaS;  // Btu/ft^2/min
+  const Qig = 250 + 1116 * Mf;                      // heat of preignition Btu/lb
+  const R0 = IR * s.xi / (s.rhoB * s.eps * Qig);    // ft/min
+  return { R0, IR };
+}
+
+/* ------------------------------------------------------------ scenario   */
+const scenario = {
+  seed: 20260815,
+  windSpeed: 10,        // m/s at 20 ft
+  windFrom: 45,         // compass bearing the wind blows FROM
+  moisture: 6,          // 1-h dead fuel moisture, %
+  temp: 34,             // deg C — drives a moisture adjustment only
+  rh: 12,               // %
+  spotting: true,
+  ignition: [{ x: 148, y: 58 }],
+  respondMin: 20,       // minutes from detection to evacuation order
+  vehiclesPerHousehold: 1.7,
+  peoplePerVehicle: 2.4,
+  // Real-world geographic anchor for the 7.68 km simulation grid.
+  // Terrain/fuels remain synthetic until DEM/land-cover adapters are enabled.
+  centerLat: 26.4499,
+  centerLon: 80.3319,
+  locationName: 'Kanpur, Uttar Pradesh, India',
+  ignitionSource: 'Manual planning ignition',
+  ignitionSourceUrl: '',
+  ignitionObservedAt: ''
+};
+
+/* per-cell spread parameters for the current scenario */
+const fire = {
+  rHead: new Float32Array(N * N),   // m/min, maximum (heading) spread rate
+  headDir: new Float32Array(N * N), // radians, screen space
+  ecc: new Float32Array(N * N),     // ellipse eccentricity
+  fli: new Float32Array(N * N),     // Byram fireline intensity, kW/m
+  arrival: new Float32Array(N * N), // minutes since ignition, INF if unreached
+  burnedHa: null,                   // cumulative burned area per 5-min bin
+  binMin: 5,
+  maxFlame: 0
+};
+
+/* effective 1-h dead fuel moisture for a cell: base value modified by
+   aspect (north slopes hold moisture), canopy shading and elevation */
+function cellMoisture(i, base) {
+  const asp = land.aspect[i], sl = land.slope[i];
+  const northness = -Math.sin(asp);          // +1 when upslope points north
+  const relief = clamp(sl * 2.2, 0, 1);
+  let m = base * (1 + 0.28 * northness * relief) * (1 + 0.22 * land.canopy[i]);
+  const eNorm = (land.elev[i] - land.minE) / (land.maxE - land.minE);
+  m *= 1 + 0.18 * eNorm;
+  return clamp(m, 0.02, 0.60);
+}
+
+function computeSpreadField() {
+  const wRad = (scenario.windFrom + 180) * D2R;         // direction wind blows TO
+  const wx = Math.sin(wRad), wy = -Math.cos(wRad);      // screen-space unit vector
+  const windFtMin = scenario.windSpeed * MPS_TO_FTMIN;
+  const baseM = scenario.moisture / 100;
+  let maxFlame = 0;
+
+  for (let i = 0; i < N * N; i++) {
+    const fm = land.fuel[i];
+    const s = fuelStatic[fm];
+    if (!s) { fire.rHead[i] = 0; fire.ecc[i] = 0; fire.fli[i] = 0; continue; }
+
+    const Mf = cellMoisture(i, baseM);
+    const b = baseROS(fm, Mf);
+    if (!b || b.R0 <= 0) { fire.rHead[i] = 0; fire.ecc[i] = 0; fire.fli[i] = 0; continue; }
+
+    // midflame wind: 20-ft wind reduced by the fuel's wind reduction factor
+    const U = windFtMin * FUELS[fm].wrf * (1 - 0.35 * land.canopy[i]);
+    let phiW = s.windK * Math.pow(Math.max(U, 0), s.B);
+    // Rothermel/Andrews effective-wind-speed limit: Ueff <= 0.9 * IR (ft/min).
+    // Keeps the model inside the range it was calibrated over.
+    const phiWmax = s.windK * Math.pow(0.9 * b.IR, s.B);
+    phiW = Math.min(phiW, phiWmax);
+
+    const tanSl = land.slope[i];
+    const phiS = s.phiSlopeK * tanSl * tanSl;
+    const asp = land.aspect[i];
+
+    // vector-add the wind and slope contributions
+    const vx = phiW * wx + phiS * Math.cos(asp);
+    const vy = phiW * wy + phiS * Math.sin(asp);
+    const phiE = Math.sqrt(vx * vx + vy * vy);
+    const dir = (phiE > 1e-6) ? Math.atan2(vy, vx) : wRad;
+
+    const Rh = b.R0 * (1 + phiE);                       // ft/min
+    fire.rHead[i] = Rh * FTMIN_TO_MMIN;
+    fire.headDir[i] = dir;
+
+    // length-to-breadth ratio from the equivalent wind speed (Anderson 1983)
+    const Ueq = Math.pow(Math.max(phiE, 0) / s.windK, 1 / s.B);  // ft/min
+    const Umph = clamp(Ueq / 88, 0, 30);
+    let LB = 0.936 * Math.exp(0.2566 * Umph) + 0.461 * Math.exp(-0.1548 * Umph) - 0.397;
+    LB = clamp(LB, 1.0, 8);
+    fire.ecc[i] = Math.sqrt(LB * LB - 1) / LB;
+
+    // Byram fireline intensity -> flame length (for the tooltip / severity)
+    const tr = 384 / FUELS[fm].sav;                     // residence time, min
+    const wConsumed = FUELS[fm].w0;                     // lb/ft^2
+    const I_btu = s.h * wConsumed * (Rh / 60);          // Btu/ft/s
+    const kWm = I_btu * 3.46414;                        // -> kW/m
+    fire.fli[i] = kWm;
+    const flameM = 0.0775 * Math.pow(kWm, 0.46);        // Byram, metres
+    if (flameM > maxFlame) maxFlame = flameM;
+    void tr;
+  }
+  fire.maxFlame = maxFlame;
+}
+
+/* directional spread rate at cell i toward screen angle th (m/min) */
+function rosAt(i, th) {
+  const R = fire.rHead[i];
+  if (R <= 0) return 0;
+  const e = fire.ecc[i];
+  const d = 1 - e * Math.cos(th - fire.headDir[i]);
+  return R * (1 - e) / Math.max(d, 1e-4);
+}
+
+/* ---------------------------------------------- binary min-heap (Dijkstra) */
+class Heap {
+  constructor(cap) { this.k = new Float64Array(cap); this.v = new Int32Array(cap); this.n = 0; this.cap = cap; }
+  grow() {
+    const k = new Float64Array(this.cap * 2), v = new Int32Array(this.cap * 2);
+    k.set(this.k); v.set(this.v); this.k = k; this.v = v; this.cap *= 2;
+  }
+  push(key, val) {
+    if (this.n === this.cap) this.grow();
+    let i = this.n++;
+    this.k[i] = key; this.v[i] = val;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (this.k[p] <= this.k[i]) break;
+      const tk = this.k[p], tv = this.v[p];
+      this.k[p] = this.k[i]; this.v[p] = this.v[i];
+      this.k[i] = tk; this.v[i] = tv; i = p;
+    }
+  }
+  pop() {
+    const top = this.v[0], tk = this.k[0];
+    this.n--;
+    if (this.n > 0) {
+      this.k[0] = this.k[this.n]; this.v[0] = this.v[this.n];
+      let i = 0;
+      for (;;) {
+        const l = 2 * i + 1, r = l + 1; let m = i;
+        if (l < this.n && this.k[l] < this.k[m]) m = l;
+        if (r < this.n && this.k[r] < this.k[m]) m = r;
+        if (m === i) break;
+        const kk = this.k[m], vv = this.v[m];
+        this.k[m] = this.k[i]; this.v[m] = this.v[i];
+        this.k[i] = kk; this.v[i] = vv; i = m;
+      }
+    }
+    this.lastKey = tk;
+    return top;
+  }
+}
+
+/* 16-neighbour stencil: reduces the octagonal bias of an 8-neighbour walk */
+const NB = (() => {
+  const out = [];
+  for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+    if (!dx && !dy) continue;
+    const g = (function gcd(a, b) { a = Math.abs(a); b = Math.abs(b); while (b) { const t = a % b; a = b; b = t; } return a; })(dx, dy);
+    if (g !== 1) continue;
+    out.push({ dx, dy, d: Math.hypot(dx, dy) * CELLM, th: Math.atan2(dy, dx) });
+  }
+  return out;
+})();
+
+/* Fire arrival-time field by Dijkstra over the anisotropic spread metric.
+   Travel time across a link is split half-and-half between the two cells,
+   so heterogeneous fuel beds average correctly.                           */
+function computeArrival() {
+  const A = fire.arrival;
+  A.fill(INF);
+  const heap = new Heap(1 << 17);
+  const done = new Uint8Array(N * N);
+
+  for (const ig of scenario.ignition) {
+    const x = clamp(Math.round(ig.x), 0, N - 1), y = clamp(Math.round(ig.y), 0, N - 1);
+    const i = idx(x, y);
+    A[i] = 0; heap.push(0, i);
+  }
+
+  const spotSeed = scenario.seed ^ 0x5f3a;
+  const wRad = (scenario.windFrom + 180) * D2R;
+  const spotOn = scenario.spotting && scenario.windSpeed >= 5;
+
+  while (heap.n > 0) {
+    const i = heap.pop();
+    if (done[i]) continue;
+    done[i] = 1;
+    const t = A[i];
+    if (t > HORIZON) continue;
+    const x = i % N, y = (i / N) | 0;
+
+    for (let n = 0; n < NB.length; n++) {
+      const nb = NB[n];
+      const nx = x + nb.dx, ny = y + nb.dy;
+      if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue;
+      const j = idx(nx, ny);
+      if (done[j]) continue;
+      const ra = rosAt(i, nb.th), rb = rosAt(j, nb.th);
+      if (ra <= 0 || rb <= 0) continue;
+      const dt = (nb.d * 0.5) / ra + (nb.d * 0.5) / rb;
+      const nt = t + dt;
+      if (nt < A[j] && nt <= HORIZON) { A[j] = nt; heap.push(nt, j); }
+    }
+
+    /* ember spotting: high-intensity cells throw firebrands downwind */
+    if (spotOn && fire.fli[i] > 1500) {
+      const p = clamp((fire.fli[i] - 1500) / 12000, 0, 0.5) *
+                clamp(scenario.windSpeed / 18, 0, 1);
+      if (hash2(x, y, spotSeed) < p * 0.12) {
+        const r1 = hash2(x, y, spotSeed + 1), r2 = hash2(x, y, spotSeed + 2);
+        // lofting distance scales with intensity and wind
+        const distM = (120 + r1 * r1 * 1400) * clamp(scenario.windSpeed / 12, 0.4, 2);
+        const th = wRad + (r2 - 0.5) * 0.6;
+        const sx = Math.round(x + Math.cos(th) * distM / CELLM);
+        const sy = Math.round(y + Math.sin(th) * distM / CELLM);
+        if (sx >= 0 && sy >= 0 && sx < N && sy < N) {
+          const sj = idx(sx, sy);
+          if (fire.rHead[sj] > 0 && !done[sj]) {
+            const nt = t + 3 + r1 * 9;   // travel + ignition delay
+            if (nt < fire.arrival[sj] && nt <= HORIZON) {
+              fire.arrival[sj] = nt; heap.push(nt, sj);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // cumulative burned area per time bin
+  const bins = Math.ceil(HORIZON / fire.binMin) + 1;
+  const hist = new Float64Array(bins);
+  const cellHa = (CELLM * CELLM) / 10000;
+  for (let i = 0; i < N * N; i++) {
+    const t = A[i];
+    if (t === INF) continue;
+    const b = Math.min(bins - 1, Math.floor(t / fire.binMin));
+    hist[b] += cellHa;
+  }
+  for (let b = 1; b < bins; b++) hist[b] += hist[b - 1];
+  fire.burnedHa = hist;
+}
+
+function burnedHaAt(t) {
+  const b = clamp(Math.floor(t / fire.binMin), 0, fire.burnedHa.length - 1);
+  return fire.burnedHa[b];
+}
+/* --------------------------------------------------------------- 30 roads */
+/* A synthetic but plausible road network: settlements are placed on gentle
+   ground, then linked by least-cost paths that prefer low gradient and reuse
+   existing corridors — which is roughly how real mountain roads end up.    */
+
+const ROAD_CLASS = {
+  highway:  { name: 'Highway',   lanes: 2, kph: 95, capPerLane: 1900, w: 3.0, col: '#d8d5cc' },
+  arterial: { name: 'Arterial',  lanes: 1, kph: 70, capPerLane: 1100, w: 2.0, col: '#a9a69d' },
+  local:    { name: 'Local road',lanes: 1, kph: 50, capPerLane:  700, w: 1.2, col: '#7d7a72' }
+};
+
+const NAME_A = ['Pine', 'Cedar', 'Juniper', 'Manzanita', 'Bear', 'Silver', 'Copper',
+  'Willow', 'Granite', 'Aspen', 'Chaparral', 'Coyote', 'Laurel', 'Sage'];
+const NAME_B = ['Hollow', 'Ridge', 'Flat', 'Creek', 'Springs', 'Mesa', 'Gulch',
+  'Bend', 'Crossing', 'Meadows', 'Canyon', 'Bluff'];
+
+const net = {
+  nodes: [],      // {id,x,y,cell,fireT,kind}
+  edges: [],      // {id,a,b,len,cls,cells[],fireT,cap,t0}
+  adj: [],        // per node: [{edge, to}]
+  comms: [],      // {name,pop,node,x,y,...}
+  shelters: [],   // {name,node,x,y,cap}
+  roadMask: null
+};
+
+function terrainCost(from, to) {
+  const dz = Math.abs(land.elev[to] - land.elev[from]);
+  const d = CELLM;
+  const grade = dz / d;
+  const f = land.fuel[to];
+  let mult = 1 + 9 * grade * grade * 60;          // steep ground is expensive
+  if (f === F_WATER) mult += 40;                  // bridges are costly
+  if (f === F_ROCK) mult += 2.5;
+  return mult;
+}
+
+/* least-cost path between two cells, reusing existing road corridors */
+function routePath(a, b, roadUse) {
+  const g = new Float64Array(N * N).fill(INF);
+  const prev = new Int32Array(N * N).fill(-1);
+  const closed = new Uint8Array(N * N);
+  const heap = new Heap(1 << 15);
+  const bx = b % N, by = (b / N) | 0;
+  g[a] = 0; heap.push(0, a);
+  const D8 = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+  while (heap.n > 0) {
+    const i = heap.pop();
+    if (closed[i]) continue;
+    closed[i] = 1;
+    if (i === b) break;
+    const x = i % N, y = (i / N) | 0;
+    for (const [dx, dy] of D8) {
+      const nx = x + dx, ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= N || ny >= N) continue;
+      const j = idx(nx, ny);
+      if (closed[j]) continue;
+      const step = Math.hypot(dx, dy) * CELLM;
+      let c = step * terrainCost(i, j);
+      if (roadUse[j]) c *= 0.22;                  // strongly prefer existing road
+      const ng = g[i] + c;
+      if (ng < g[j]) {
+        g[j] = ng; prev[j] = i;
+        const h = Math.hypot(nx - bx, ny - by) * CELLM * 0.9;
+        heap.push(ng + h, j);
+      }
+    }
+  }
+  if (prev[b] === -1 && a !== b) return null;
+  const path = []; let c = b;
+  while (c !== -1) { path.push(c); if (c === a) break; c = prev[c]; }
+  return path.reverse();
+}
+
+function buildNetwork(seed) {
+  const r = rng(seed ^ 0x9e37);
+  net.nodes = []; net.edges = []; net.adj = []; net.comms = []; net.shelters = [];
+  const roadUse = new Uint8Array(N * N);
+  net.roadMask = roadUse;
+
+  /* ---- pick settlement sites: gentle ground, not water, well separated */
+  const cand = [];
+  for (let y = 8; y < N - 8; y += 2) for (let x = 8; x < N - 8; x += 2) {
+    const i = idx(x, y);
+    if (land.fuel[i] === F_WATER) continue;
+    if (land.slope[i] > 0.16) continue;
+    // prefer the wildland–urban interface: flat ground next to heavy fuel
+    let heavy = 0;
+    for (let j = -4; j <= 4; j += 2) for (let k = -4; k <= 4; k += 2) {
+      const f = land.fuel[idx(clamp(x + k, 0, N - 1), clamp(y + j, 0, N - 1))];
+      if (f >= 6) heavy++;
+    }
+    cand.push({ x, y, i, score: heavy + r() * 4 - land.slope[i] * 12 });
+  }
+  cand.sort((a, b) => b.score - a.score);
+
+  const chosen = [];
+  const minSep = 32;
+  for (const c of cand) {
+    if (chosen.length >= 7) break;
+    if (chosen.every(o => Math.hypot(o.x - c.x, o.y - c.y) > minSep)) chosen.push(c);
+  }
+
+  /* ---- shelters: flat, close to the domain edge, away from heavy fuel */
+  const shCand = [];
+  for (let y = 4; y < N - 4; y += 2) for (let x = 4; x < N - 4; x += 2) {
+    const i = idx(x, y);
+    if (land.fuel[i] === F_WATER || land.slope[i] > 0.10) continue;
+    const edge = Math.min(x, y, N - 1 - x, N - 1 - y);
+    if (edge > 26) continue;
+    let heavy = 0;
+    for (let j = -5; j <= 5; j += 2) for (let k = -5; k <= 5; k += 2)
+      if (land.fuel[idx(clamp(x + k, 0, N - 1), clamp(y + j, 0, N - 1))] >= 6) heavy++;
+    shCand.push({ x, y, i, score: -heavy - edge * 0.4 + r() * 2 });
+  }
+  shCand.sort((a, b) => b.score - a.score);
+  const shSel = [];
+  for (const c of shCand) {
+    if (shSel.length >= 3) break;
+    if (shSel.every(o => Math.hypot(o.x - c.x, o.y - c.y) > 85)) shSel.push(c);
+  }
+
+  /* ---- name & size the settlements */
+  const usedNames = new Set();
+  const pickName = () => {
+    for (let k = 0; k < 60; k++) {
+      const n = NAME_A[Math.floor(r() * NAME_A.length)] + ' ' + NAME_B[Math.floor(r() * NAME_B.length)];
+      if (!usedNames.has(n)) { usedNames.add(n); return n; }
+    }
+    return 'Ridge ' + usedNames.size;
+  };
+  chosen.forEach((c, k) => {
+    const pop = Math.round((k === 0 ? 9000 : 900 + r() * 5200) * (0.8 + r() * 0.5));
+    net.comms.push({ name: pickName(), pop, x: c.x, y: c.y, cell: c.i, node: -1, id: k });
+  });
+  const shNames = ['County Fairgrounds', 'Regional Airport', 'Valley College'];
+  shSel.forEach((c, k) => {
+    net.shelters.push({ name: shNames[k % 3] + ' Shelter', x: c.x, y: c.y, cell: c.i, node: -1, id: k });
+  });
+
+  /* ---- decide which pairs to connect: MST over all sites + redundancy */
+  const sites = [...net.comms.map(c => ({ ...c, kind: 'comm' })),
+                 ...net.shelters.map(s => ({ ...s, kind: 'shelter' }))];
+  const M = sites.length;
+  const dist = (a, b) => Math.hypot(sites[a].x - sites[b].x, sites[a].y - sites[b].y);
+  const inTree = new Array(M).fill(false);
+  const links = [];
+  inTree[0] = true;
+  for (let k = 1; k < M; k++) {
+    let best = INF, ba = -1, bb = -1;
+    for (let a = 0; a < M; a++) { if (!inTree[a]) continue;
+      for (let b = 0; b < M; b++) { if (inTree[b]) continue;
+        const d = dist(a, b); if (d < best) { best = d; ba = a; bb = b; } } }
+    inTree[bb] = true; links.push([ba, bb, 'mst']);
+  }
+  // redundancy: a couple of extra chords so evacuees have alternatives
+  const extras = [];
+  for (let a = 0; a < M; a++) for (let b = a + 1; b < M; b++) {
+    if (links.some(l => (l[0] === a && l[1] === b) || (l[0] === b && l[1] === a))) continue;
+    extras.push([a, b, dist(a, b)]);
+  }
+  extras.sort((p, q) => p[2] - q[2]);
+  for (let k = 0; k < Math.min(3, extras.length); k++) links.push([extras[k][0], extras[k][1], 'extra']);
+
+  /* ---- classify: anything touching a shelter is a highway */
+  const paths = [];
+  for (const [a, b, kind] of links) {
+    const touchesShelter = sites[a].kind === 'shelter' || sites[b].kind === 'shelter';
+    const cls = touchesShelter ? 'highway' : (kind === 'mst' ? 'arterial' : 'local');
+    const p = routePath(sites[a].cell, sites[b].cell, roadUse);
+    if (!p) continue;
+    for (const c of p) roadUse[c] = 1;
+    paths.push({ cells: p, cls, a, b });
+  }
+
+  /* ---- turn overlapping polylines into a graph ------------------------- */
+  const useCount = new Int32Array(N * N);
+  for (const p of paths) {
+    const seen = new Set();
+    for (const c of p.cells) if (!seen.has(c)) { seen.add(c); useCount[c]++; }
+  }
+  const nodeAt = new Map();          // cell -> node id
+  const addNode = (cell, kind) => {
+    if (nodeAt.has(cell)) {
+      const n = net.nodes[nodeAt.get(cell)];
+      if (kind && kind !== 'junction') n.kind = kind;
+      return nodeAt.get(cell);
+    }
+    const id = net.nodes.length;
+    net.nodes.push({ id, cell, x: cell % N, y: (cell / N) | 0, kind: kind || 'junction', fireT: INF });
+    nodeAt.set(cell, id);
+    return id;
+  };
+  for (const s of sites) addNode(s.cell, s.kind);
+
+  const SEG = 9;   // cells per graph edge — fine enough for mid-block closures
+  for (const p of paths) {
+    let startI = 0;
+    for (let k = 1; k < p.cells.length; k++) {
+      const isEnd = k === p.cells.length - 1;
+      const isJunction = useCount[p.cells[k]] > 1 && k - startI > 2;
+      if (!isEnd && !isJunction && (k - startI) < SEG) continue;
+      const cells = p.cells.slice(startI, k + 1);
+      const a = addNode(cells[0]), b = addNode(cells[cells.length - 1]);
+      if (a !== b) {
+        let len = 0;
+        for (let m = 1; m < cells.length; m++) {
+          const c0 = cells[m - 1], c1 = cells[m];
+          const dx = (c1 % N) - (c0 % N), dy = ((c1 / N) | 0) - ((c0 / N) | 0);
+          const dz = land.elev[c1] - land.elev[c0];
+          len += Math.sqrt((Math.hypot(dx, dy) * CELLM) ** 2 + dz * dz);
+        }
+        const cc = ROAD_CLASS[p.cls];
+        // don't duplicate an edge that already links the same pair
+        if (!net.edges.some(e => (e.a === a && e.b === b) || (e.a === b && e.b === a))) {
+          net.edges.push({
+            id: net.edges.length, a, b, cells, len, cls: p.cls,
+            t0: (len / 1000) / cc.kph * 60,                    // free-flow minutes
+            cap: cc.capPerLane * cc.lanes,                     // veh/h one direction
+            fireT: INF, vol: 0
+          });
+        }
+      }
+      startI = k;
+    }
+  }
+
+  net.adj = net.nodes.map(() => []);
+  for (const e of net.edges) {
+    net.adj[e.a].push({ e: e.id, to: e.b });
+    net.adj[e.b].push({ e: e.id, to: e.a });
+  }
+  for (const c of net.comms) c.node = nodeAt.get(c.cell);
+  for (const s of net.shelters) s.node = nodeAt.get(s.cell);
+
+  // shelter capacity sized to the population it can plausibly take
+  const totalPop = net.comms.reduce((s, c) => s + c.pop, 0);
+  net.shelters.forEach((s, k) => { s.cap = Math.round(totalPop * (k === 0 ? 0.5 : 0.32)); });
+}
+
+
+/* ========================================================== Stage 3 roads */
+/* Real road-network adapter. The public Overpass API returns OpenStreetMap
+   highway ways with geometry. We convert those ways into the same graph used
+   by the evacuation solver, preserving OSM intersections and one-way tags.
+
+   Communities and shelters are still the Stage-2 synthetic planning points;
+   after the real graph is built they are snapped to the nearest drivable OSM
+   node. Population/shelter replacement is intentionally left for Stage 4. */
+const realRoads = {
+  ready: false,
+  key: '',
+  loading: false,
+  source: 'synthetic',
+  ways: 0,
+  nodes: 0,
+  edges: 0,
+  km: 0,
+  lastError: '',
+  loadedAt: 0
+};
+
+const OSM_DRIVABLE = new Set([
+  'motorway','motorway_link','trunk','trunk_link','primary','primary_link',
+  'secondary','secondary_link','tertiary','tertiary_link','unclassified',
+  'residential','living_street','service','road'
+]);
+function roadClassFromOsm(hw) {
+  if (/^(motorway|trunk|primary)/.test(hw || '')) return 'highway';
+  if (/^(secondary|tertiary)/.test(hw || '')) return 'arterial';
+  return 'local';
+}
+function parseOsmSpeed(v, fallback) {
+  if (!v) return fallback;
+  const first=String(v).split(';')[0].trim().toLowerCase();
+  const n=parseFloat(first); if(!isFinite(n) || n<=0) return fallback;
+  if(first.includes('mph')) return n*1.609344;
+  return n;
+}
+function parseOsmLanes(v, cls) {
+  const n=parseFloat(String(v||'').split(';')[0]);
+  if(isFinite(n) && n>0) return clamp(Math.round(n),1,8);
+  return cls==='highway' ? 2 : 1;
+}
+function osmOneWay(tags) {
+  const v=String((tags&&tags.oneway)||'').toLowerCase();
+  if(v==='yes'||v==='1'||v==='true') return 1;
+  if(v==='-1') return -1;
+  // Roundabouts are one-way unless explicitly tagged otherwise.
+  if(tags && tags.junction==='roundabout' && v!=='no') return 1;
+  return 0;
+}
+function roadNetworkKey(){ return realLandscapeKey(); }
+function invalidateRealRoads(){ realRoads.ready=false; realRoads.key=''; }
+
+function localDistanceM(a,b) {
+  const ga=cellToLatLon(a.x,a.y), gb=cellToLatLon(b.x,b.y);
+  const mx=(gb.lon-ga.lon)*metersPerDegLon((ga.lat+gb.lat)/2);
+  const my=(gb.lat-ga.lat)*111320;
+  const dz=(land.elev[idx(clamp(Math.round(b.x),0,N-1),clamp(Math.round(b.y),0,N-1))]||0)-
+           (land.elev[idx(clamp(Math.round(a.x),0,N-1),clamp(Math.round(a.y),0,N-1))]||0);
+  return Math.sqrt(mx*mx+my*my+dz*dz);
+}
+function rasterLineCells(a,b) {
+  const out=[];
+  let x0=Math.round(a.x), y0=Math.round(a.y), x1=Math.round(b.x), y1=Math.round(b.y);
+  const dx=Math.abs(x1-x0), sx=x0<x1?1:-1;
+  const dy=-Math.abs(y1-y0), sy=y0<y1?1:-1;
+  let err=dx+dy;
+  for(let guard=0;guard<N*4;guard++){
+    if(x0>=0&&y0>=0&&x0<N&&y0<N){const c=idx(x0,y0);if(out[out.length-1]!==c)out.push(c);}
+    if(x0===x1&&y0===y1)break;
+    const e2=2*err; if(e2>=dy){err+=dy;x0+=sx;} if(e2<=dx){err+=dx;y0+=sy;}
+  }
+  return out;
+}
+function insideRoadDomain(p, pad=2){ return p.x>=-pad&&p.y>=-pad&&p.x<N+pad&&p.y<N+pad; }
+
+async function fetchOsmRoadWays() {
+  const b=geoBounds(), south=b[0][0], west=b[0][1], north=b[1][0], east=b[1][1];
+  const q=`[out:json][timeout:28];way["highway"](${south},${west},${north},${east});out body geom;`;
+  const endpoints=['/api/overpass'];
+  let last;
+  for(const url of endpoints){
+    try{
+      const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:q})});
+      if(!r.ok) throw new Error(`road API HTTP ${r.status}`);
+      const j=await r.json(); return (j.elements||[]).filter(e=>e.type==='way'&&e.tags&&OSM_DRIVABLE.has(e.tags.highway)&&Array.isArray(e.geometry)&&e.geometry.length>1);
+    }catch(e){last=e;}
+  }
+  throw last||new Error('OpenStreetMap road service unavailable');
+}
+
+function installOsmRoadGraph(ways) {
+  const oldComms=net.comms.map(c=>({...c})), oldShelters=net.shelters.map(s=>({...s}));
+  const nodeMap=new Map();
+  const nodes=[]; const edges=[]; const roadMask=new Uint8Array(N*N);
+  const getNode=(osmId,g)=>{
+    const key=String(osmId);
+    if(nodeMap.has(key)) return nodeMap.get(key);
+    const p=latLonToCell(g.lat,g.lon);
+    const x=clamp(p.x,0,N-1), y=clamp(p.y,0,N-1), cell=idx(clamp(Math.round(x),0,N-1),clamp(Math.round(y),0,N-1));
+    const id=nodes.length; nodes.push({id,x,y,cell,kind:'road',fireT:INF,osmId:key}); nodeMap.set(key,id); return id;
+  };
+
+  let usedWays=0, totalKm=0;
+  for(const w of ways){
+    const tags=w.tags||{}, hw=tags.highway;
+    if(tags.access==='no'||tags.access==='private'||tags.motor_vehicle==='no'||tags.vehicle==='no') continue;
+    if(!Array.isArray(w.nodes)||w.nodes.length!==w.geometry.length) continue;
+    const cls=roadClassFromOsm(hw), base=ROAD_CLASS[cls];
+    const kph=clamp(parseOsmSpeed(tags.maxspeed,base.kph),8,130);
+    const lanes=parseOsmLanes(tags.lanes,cls), one=osmOneWay(tags);
+    let wayUsed=false;
+    for(let i=1;i<w.geometry.length;i++){
+      const ga=w.geometry[i-1], gb=w.geometry[i];
+      const pa=latLonToCell(ga.lat,ga.lon), pb=latLonToCell(gb.lat,gb.lon);
+      if(!insideRoadDomain(pa)&&!insideRoadDomain(pb)) continue;
+      const cells=rasterLineCells(pa,pb); if(!cells.length) continue;
+      for(const c of cells) roadMask[c]=1;
+      let a=getNode(w.nodes[i-1],ga), b=getNode(w.nodes[i],gb);
+      if(a===b) continue;
+      let reverse=false;
+      if(one===-1){const t=a;a=b;b=t;reverse=true;}
+      const na=nodes[a], nb=nodes[b];
+      let len=localDistanceM(na,nb); if(!isFinite(len)||len<1) len=CELLM;
+      const effectiveLanes=one ? lanes : Math.max(1,Math.ceil(lanes/2));
+      const cap=base.capPerLane*effectiveLanes;
+      edges.push({
+        id:edges.length,a,b,cells:reverse?[...cells].reverse():cells,len,cls,
+        t0:(len/1000)/kph*60,cap,fireT:INF,vol:0,oneway:!!one,
+        osmWay:w.id,name:tags.name||tags.ref||'',highway:hw,kph,lanes
+      });
+      totalKm+=len/1000; wayUsed=true;
+    }
+    if(wayUsed) usedWays++;
+  }
+  if(nodes.length<2||edges.length<1) throw new Error('No drivable OSM roads were found inside this simulation area');
+
+  const adj=nodes.map(()=>[]);
+  for(const e of edges){
+    adj[e.a].push({e:e.id,to:e.b});
+    if(!e.oneway) adj[e.b].push({e:e.id,to:e.a});
+  }
+  // Dijkstra assumes arrival from a community node. To avoid stranding a
+  // synthetic planning point on a one-way-only node, snap to a node that has
+  // at least one outgoing road.
+  const candidates=nodes.filter(n=>adj[n.id].length);
+  const nearestNode=(x,y)=>{
+    let best=candidates[0].id, bd=INF;
+    for(const n of candidates){const d=(n.x-x)*(n.x-x)+(n.y-y)*(n.y-y);if(d<bd){bd=d;best=n.id;}}
+    return best;
+  };
+  for(const c of oldComms){c.node=nearestNode(c.x,c.y);const n=nodes[c.node];c.x=n.x;c.y=n.y;c.cell=n.cell;n.kind='comm';}
+  for(const s of oldShelters){s.node=nearestNode(s.x,s.y);const n=nodes[s.node];s.x=n.x;s.y=n.y;s.cell=n.cell;n.kind='shelter';}
+
+  net.nodes=nodes; net.edges=edges; net.adj=adj; net.comms=oldComms; net.shelters=oldShelters; net.roadMask=roadMask;
+  return {ways:usedWays,nodes:nodes.length,edges:edges.length,km:totalKm};
+}
+
+async function loadRealRoadNetwork(onStatus) {
+  const key=roadNetworkKey();
+  if(realRoads.ready&&realRoads.key===key) return true;
+  if(realRoads.loading) return false;
+  realRoads.loading=true; realRoads.lastError='';
+  try{
+    onStatus&&onStatus('Loading OpenStreetMap roads…');
+    const ways=await fetchOsmRoadWays();
+    onStatus&&onStatus(`Building road graph from ${ways.length.toLocaleString()} OSM ways…`);
+    const stats=installOsmRoadGraph(ways);
+    Object.assign(realRoads,{ready:true,key,source:'OpenStreetMap',ways:stats.ways,nodes:stats.nodes,edges:stats.edges,km:stats.km,loadedAt:Date.now()});
+    return true;
+  }catch(e){
+    realRoads.ready=false; realRoads.key=''; realRoads.source='synthetic fallback'; realRoads.lastError=e.message||String(e); throw e;
+  }finally{realRoads.loading=false;}
+}
+
+
+
+/* ===================================================== Stage 4 communities */
+/* Real settlement + evacuation-site adapter.
+
+   OSM `place=*` features provide real settlement names and may include a
+   `population=*` tag. Population is not universally mapped, so missing values
+   are explicitly marked as planning estimates rather than observed counts.
+
+   For evacuation destinations we prefer features explicitly tagged as an
+   emergency shelter. Where none are mapped in the small simulation window,
+   schools/community centres are exposed only as *candidate public sites*.
+   They are not represented as official emergency shelters. */
+const realPlaces = {
+  ready:false,key:'',loading:false,source:'synthetic',communities:0,
+  mappedPopulation:0,estimatedPopulation:0,sites:0,officialSites:0,
+  lastError:'',loadedAt:0
+};
+function invalidateRealPlaces(){ realPlaces.ready=false; realPlaces.key=''; }
+function placeDataKey(){ return realLandscapeKey(); }
+function parsePopulation(v){
+  if(v===undefined||v===null) return null;
+  const n=Number(String(v).replace(/[^0-9.]/g,''));
+  return isFinite(n)&&n>0 ? Math.round(n) : null;
+}
+function estimatePlacePopulation(place){
+  // Deliberately conservative planning proxies used only when OSM has no
+  // population tag. UI/status text labels these as estimates.
+  return ({city:30000,town:12000,village:2500,hamlet:350,suburb:6000,quarter:2500,neighbourhood:1200,isolated_dwelling:20})[place]||500;
+}
+function featurePoint(e){
+  if(e.type==='node' && isFinite(e.lat)&&isFinite(e.lon)) return {lat:+e.lat,lon:+e.lon};
+  if(e.center && isFinite(e.center.lat)&&isFinite(e.center.lon)) return {lat:+e.center.lat,lon:+e.center.lon};
+  if(Array.isArray(e.geometry)&&e.geometry.length){
+    let lat=0,lon=0,n=0; for(const g of e.geometry){if(isFinite(g.lat)&&isFinite(g.lon)){lat+=+g.lat;lon+=+g.lon;n++;}}
+    if(n) return {lat:lat/n,lon:lon/n};
+  }
+  return null;
+}
+async function fetchOsmCommunityData(){
+  const b=geoBounds(), south=b[0][0], west=b[0][1], north=b[1][0], east=b[1][1];
+  const q=`[out:json][timeout:28];(
+    nwr["place"~"^(city|town|village|hamlet|suburb|quarter|neighbourhood|isolated_dwelling)$"](${south},${west},${north},${east});
+    nwr["emergency:social_facility"="shelter"](${south},${west},${north},${east});
+    nwr["social_facility"="shelter"](${south},${west},${north},${east});
+    nwr["amenity"~"^(school|college|community_centre|townhall)$"](${south},${west},${north},${east});
+  );out center tags;`;
+  const endpoints=['/api/overpass'];
+  let last;
+  for(const url of endpoints){
+    try{
+      const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:q})});
+      if(!r.ok) throw new Error(`community API HTTP ${r.status}`);
+      const j=await r.json(); return j.elements||[];
+    }catch(e){last=e;}
+  }
+  throw last||new Error('OpenStreetMap community service unavailable');
+}
+function nearestUsableRoadNode(x,y){
+  const candidates=net.nodes.filter(n=>net.adj[n.id]&&net.adj[n.id].length);
+  if(!candidates.length) return -1;
+  let best=candidates[0].id,bd=INF;
+  for(const n of candidates){const d=(n.x-x)*(n.x-x)+(n.y-y)*(n.y-y);if(d<bd){bd=d;best=n.id;}}
+  return best;
+}
+function installOsmCommunityData(elements){
+  const comms=[], official=[], candidates=[];
+  const seenComm=new Set(), seenSite=new Set();
+  for(const e of elements){
+    const t=e.tags||{}, pt=featurePoint(e); if(!pt) continue;
+    const p=latLonToCell(pt.lat,pt.lon); if(p.x<0||p.y<0||p.x>=N||p.y>=N) continue;
+    if(t.place){
+      const name=t.name||t['name:en']; if(!name) continue;
+      const key=(name+'|'+t.place).toLowerCase(); if(seenComm.has(key)) continue; seenComm.add(key);
+      const mapped=parsePopulation(t.population), pop=mapped||estimatePlacePopulation(t.place);
+      comms.push({name,pop,popSource:mapped?'OSM population tag':'planning estimate',place:t.place,x:p.x,y:p.y,cell:idx(clamp(Math.round(p.x),0,N-1),clamp(Math.round(p.y),0,N-1)),node:-1,id:comms.length,osmId:e.id});
+      continue;
+    }
+    const isOfficial=t['emergency:social_facility']==='shelter'||t.social_facility==='shelter';
+    const amen=t.amenity||'';
+    if(!isOfficial && !/^(school|college|community_centre|townhall)$/.test(amen)) continue;
+    const name=t.name||({school:'Mapped school',college:'Mapped college',community_centre:'Community centre',townhall:'Town hall'}[amen]||'Emergency shelter');
+    const skey=(name+'|'+e.type+'|'+e.id).toLowerCase(); if(seenSite.has(skey)) continue; seenSite.add(skey);
+    const capTag=parsePopulation(t.capacity);
+    const cap=capTag||({school:800,college:1500,community_centre:500,townhall:350}[amen]||750);
+    const site={name:isOfficial?name:`${name} (candidate)`,cap,capSource:capTag?'OSM capacity tag':'planning capacity',official:isOfficial,amenity:amen,x:p.x,y:p.y,cell:idx(clamp(Math.round(p.x),0,N-1),clamp(Math.round(p.y),0,N-1)),node:-1,id:0,osmId:e.id};
+    (isOfficial?official:candidates).push(site);
+  }
+  // Keep the most relevant settlements inside the compact 7.68 km domain.
+  const rank={city:8,town:7,village:6,suburb:5,quarter:4,neighbourhood:3,hamlet:2,isolated_dwelling:1};
+  comms.sort((a,b)=>(rank[b.place]||0)-(rank[a.place]||0)||b.pop-a.pop);
+  let chosenComms=comms.slice(0,10);
+  if(!chosenComms.length) throw new Error('No mapped settlements were found inside this simulation area');
+
+  // Prefer officially mapped emergency shelters; fill up to three with clearly
+  // labelled candidate public facilities only if required for a routable demo.
+  let sites=official.slice(0,3);
+  if(sites.length<3) sites=sites.concat(candidates.slice(0,3-sites.length));
+  if(!sites.length) throw new Error('No mapped emergency/candidate public evacuation sites were found inside this simulation area');
+
+  for(const c of chosenComms){c.node=nearestUsableRoadNode(c.x,c.y);if(c.node<0)continue;const n=net.nodes[c.node];c.x=n.x;c.y=n.y;c.cell=n.cell;n.kind='comm';}
+  chosenComms=chosenComms.filter(c=>c.node>=0);
+  for(const s of sites){s.node=nearestUsableRoadNode(s.x,s.y);if(s.node<0)continue;const n=net.nodes[s.node];s.x=n.x;s.y=n.y;s.cell=n.cell;n.kind='shelter';}
+  sites=sites.filter(s=>s.node>=0);
+  chosenComms.forEach((c,i)=>c.id=i); sites.forEach((s,i)=>s.id=i);
+  if(!chosenComms.length||!sites.length) throw new Error('Mapped communities/sites could not be connected to the local road graph');
+  net.comms=chosenComms; net.shelters=sites;
+  const mapped=chosenComms.filter(c=>c.popSource==='OSM population tag').reduce((a,c)=>a+c.pop,0);
+  const estimated=chosenComms.filter(c=>c.popSource!=='OSM population tag').reduce((a,c)=>a+c.pop,0);
+  return {communities:chosenComms.length,mappedPopulation:mapped,estimatedPopulation:estimated,sites:sites.length,officialSites:sites.filter(s=>s.official).length};
+}
+async function loadRealCommunityData(onStatus){
+  const key=placeDataKey(); if(realPlaces.ready&&realPlaces.key===key)return true; if(realPlaces.loading)return false;
+  realPlaces.loading=true; realPlaces.lastError='';
+  try{
+    onStatus&&onStatus('Loading mapped communities and evacuation sites…');
+    const els=await fetchOsmCommunityData(); const st=installOsmCommunityData(els);
+    Object.assign(realPlaces,{ready:true,key,source:'OpenStreetMap',...st,loadedAt:Date.now()}); return true;
+  }catch(e){realPlaces.ready=false;realPlaces.key='';realPlaces.source='synthetic fallback';realPlaces.lastError=e.message||String(e);throw e;}
+  finally{realPlaces.loading=false;}
+}
+
+/* fire arrival time on every node and edge — this is what closes roads */
+function stampFireTimes() {
+  for (const n of net.nodes) {
+    let t = INF;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const x = clamp(Math.round(n.x + dx), 0, N - 1), y = clamp(Math.round(n.y + dy), 0, N - 1);
+      const a = fire.arrival[idx(x, y)];
+      if (a < t) t = a;
+    }
+    n.fireT = t;
+  }
+  for (const e of net.edges) {
+    let t = INF;
+    for (const c of e.cells) { const a = fire.arrival[c]; if (a < t) t = a; }
+    e.fireT = t;
+  }
+  for (const c of net.comms) {
+    let t = INF;
+    const R = 3;
+    for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
+      const a = fire.arrival[idx(clamp(Math.round(c.x + dx), 0, N - 1), clamp(Math.round(c.y + dy), 0, N - 1))];
+      if (a < t) t = a;
+    }
+    c.fireT = t;
+  }
+  for (const s of net.shelters) {
+    let t = INF;
+    for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
+      const a = fire.arrival[idx(clamp(Math.round(s.x + dx), 0, N - 1), clamp(Math.round(s.y + dy), 0, N - 1))];
+      if (a < t) t = a;
+    }
+    s.fireT = t;
+  }
+}
+/* ---------------------------------------------------------------- 40 evac */
+/* Time-dependent shortest paths on a network whose links close as the fire
+   front crosses them, with incremental traffic assignment (BPR volume-delay)
+   so that everybody does not get routed onto the same highway.             */
+
+const evac = {
+  staged: true,
+  mobilizationMin: 75,     // spread of household departure times
+  safetyMarginMin: 10,     // don't send anyone onto a link this close to burnover
+  increments: 8,
+  results: [],
+  cum: null,               // cumulative people safe, per 5-min bin
+  binMin: 5,
+  totalPop: 0,
+  safePop: 0,
+  atRiskPop: 0,
+  worstMargin: INF
+};
+
+const TIERS = [
+  { key: 'GO',      label: 'GO NOW',    css: 'critical', max: 90,   note: 'Evacuate immediately' },
+  { key: 'SET',     label: 'SET',       css: 'serious',  max: 240,  note: 'Be ready to leave at a moment’s notice' },
+  { key: 'READY',   label: 'READY',     css: 'warning',  max: 480,  note: 'Prepare, pack, stay alert' },
+  { key: 'MONITOR', label: 'MONITOR',   css: 'good',     max: INF,  note: 'No projected impact in 24 h' }
+];
+const tierOf = t => TIERS.find(z => t < z.max) || TIERS[3];
+
+/* BPR volume-delay. Capped: past roughly 2x capacity a real network is in
+   queue spillback, which a static volume-delay curve does not describe, so
+   we stop the curve rather than pretend the number means anything.        */
+const bpr = (v, c) => 1 + 0.15 * Math.pow(clamp(Math.max(v, 0) / Math.max(c, 1), 0, 2.6), 4);
+
+/* one time-dependent Dijkstra from `src` departing at `t0`.
+   Returns arrival time per node + predecessor edges, honouring closures. */
+function tdDijkstra(src, t0, vol) {
+  const nN = net.nodes.length;
+  const arr = new Float64Array(nN).fill(INF);
+  const preN = new Int32Array(nN).fill(-1);
+  const preE = new Int32Array(nN).fill(-1);
+  const done = new Uint8Array(nN);
+  const heap = new Heap(1 << 12);
+  const S = evac.safetyMarginMin;
+
+  if (net.nodes[src].fireT - S <= t0) return { arr, preN, preE, blocked: true };
+  arr[src] = t0; heap.push(t0, src);
+
+  while (heap.n > 0) {
+    const u = heap.pop();
+    if (done[u]) continue;
+    done[u] = 1;
+    const tu = arr[u];
+    for (const link of net.adj[u]) {
+      const e = net.edges[link.e];
+      const v = link.to;
+      if (done[v]) continue;
+      const tt = e.t0 * bpr(vol[e.id], e.cap);
+      const tv = tu + tt;
+      // the whole traversal has to finish before the link burns over
+      if (tv > e.fireT - S) continue;
+      if (tv > net.nodes[v].fireT - S) continue;
+      if (tv < arr[v]) { arr[v] = tv; preN[v] = u; preE[v] = link.e; heap.push(tv, v); }
+    }
+  }
+  return { arr, preN, preE, blocked: false };
+}
+
+function pathTo(res, target) {
+  const nodes = [target], edges = [];
+  let c = target;
+  while (res.preN[c] !== -1) { edges.push(res.preE[c]); c = res.preN[c]; nodes.push(c); }
+  return { nodes: nodes.reverse(), edges: edges.reverse() };
+}
+
+function planEvacuation() {
+  const K = evac.increments;
+  const vol = new Float64Array(net.edges.length);
+  for (const e of net.edges) e.vol = 0;
+
+  // urgency order — the most threatened communities move first
+  const order = net.comms.map((c, i) => i)
+    .sort((a, b) => net.comms[a].fireT - net.comms[b].fireT);
+
+  const stageOffset = {};
+  order.forEach((ci, rank) => {
+    stageOffset[ci] = evac.staged ? rank * 12 : 0;
+  });
+
+  const shelterLoad = net.shelters.map(() => 0);
+  const results = net.comms.map(c => ({
+    id: c.id, name: c.name, pop: c.pop, fireT: c.fireT,
+    vehicles: Math.round(c.pop / scenario.peoplePerVehicle),
+    depart: scenario.respondMin + (stageOffset[c.id] || 0),
+    legs: [], route: null, shelter: -1,
+    safePop: 0, atRiskPop: 0, clearance: -1, margin: INF, tier: tierOf(c.fireT)
+  }));
+
+  for (let k = 0; k < K; k++) {
+    for (const ci of order) {
+      const c = net.comms[ci], R = results[ci];
+      const dwell = evac.mobilizationMin / K;
+      const t0 = R.depart + k * dwell;
+      const vehK = R.vehicles / K;
+      const peopleK = R.pop / K;
+
+      const res = tdDijkstra(c.node, t0, vol);
+      // pick the best reachable shelter that still has room
+      let best = -1, bestT = INF, bestAny = -1, bestAnyT = INF;
+      net.shelters.forEach((s, si) => {
+        const t = res.arr[s.node];
+        if (t === INF) return;
+        if (t < bestAnyT) { bestAnyT = t; bestAny = si; }
+        if (shelterLoad[si] + peopleK <= s.cap && t < bestT) { bestT = t; best = si; }
+      });
+      if (best === -1) { best = bestAny; bestT = bestAnyT; }
+
+      if (best === -1) {
+        R.atRiskPop += peopleK;
+        R.legs.push({ depart: t0, arrive: INF, people: peopleK, ok: false });
+        continue;
+      }
+      shelterLoad[best] += peopleK;
+      const p = pathTo(res, net.shelters[best].node);
+      if (!R.route) { R.route = p; R.shelter = best; }
+      R.safePop += peopleK;
+      R.clearance = Math.max(R.clearance, bestT);
+      R.legs.push({ depart: t0, arrive: bestT, people: peopleK, ok: true });
+
+      // Load this increment onto the links it used. Incremental assignment:
+      // each pass adds 1/K of the community's demand, so after K passes the
+      // link carries the full departure flow (vehicles over the mobilisation
+      // window) — which is what the BPR curve expects, in veh/h.
+      const flow = vehK / (evac.mobilizationMin / 60);
+      for (const eid of p.edges) vol[eid] += flow;
+    }
+  }
+
+  for (const e of net.edges) e.vol = vol[e.id];
+
+  let totalPop = 0, safePop = 0, atRisk = 0, worst = INF;
+  for (const R of results) {
+    totalPop += R.pop; safePop += R.safePop; atRisk += R.atRiskPop;
+    R.margin = (R.clearance >= 0 && R.fireT !== INF) ? R.fireT - R.clearance : INF;
+    if (R.atRiskPop > 1) R.margin = -1;
+    if (R.margin < worst) worst = R.margin;
+    R.congestedEdges = R.route ? R.route.edges.filter(id => net.edges[id].vol > net.edges[id].cap * 0.85).length : 0;
+  }
+
+  // cumulative "people at a shelter" curve
+  const bins = Math.ceil(HORIZON / evac.binMin) + 1;
+  const cum = new Float64Array(bins);
+  for (const R of results) for (const leg of R.legs) {
+    if (!leg.ok || leg.arrive === INF) continue;
+    const b = clamp(Math.floor(leg.arrive / evac.binMin), 0, bins - 1);
+    cum[b] += leg.people;
+  }
+  for (let b = 1; b < bins; b++) cum[b] += cum[b - 1];
+
+  evac.results = results;
+  evac.cum = cum;
+  evac.totalPop = totalPop;
+  evac.safePop = safePop;
+  evac.atRiskPop = atRisk;
+  evac.worstMargin = worst;
+  evac.shelterLoad = shelterLoad;
+}
+
+const safeAt = t => {
+  const b = clamp(Math.floor(t / evac.binMin), 0, evac.cum.length - 1);
+  return evac.cum[b];
+};
+
+/* how many people are still in a community that the fire has already reached */
+function exposedAt(t) {
+  let n = 0;
+  for (const R of evac.results) {
+    if (R.fireT > t) continue;
+    let out = 0;
+    for (const leg of R.legs) if (leg.ok && leg.depart <= t) out += leg.people;
+    n += Math.max(0, R.pop - out);
+  }
+  return n;
+}
+
+function closedRoadKm(t) {
+  let km = 0, tot = 0;
+  for (const e of net.edges) { tot += e.len; if (e.fireT <= t) km += e.len; }
+  return { closed: km / 1000, total: tot / 1000 };
+}
+
+/* ------------------------------------------------------------ run it all */
+let dirtyLandscape = true;
+function recompute(opts) {
+  opts = opts || {};
+  if (opts.landscape || dirtyLandscape) {
+    buildLandscape(scenario.seed);
+    buildNetwork(scenario.seed);
+    dirtyLandscape = false;
+    opts.reIgnite = true;
+  }
+  computeSpreadField();
+  if (opts.reIgnite) placeDefaultIgnition();
+  computeArrival();
+  stampFireTimes();
+  planEvacuation();
+}
+
+/* Put the ignition somewhere that makes for a real scenario: fuel that will
+   actually carry under today's weather, upwind of the largest community and
+   far enough out that the front has some fetch. Requires computeSpreadField()
+   to have run, so it can test the live spread rate rather than just the fuel. */
+function placeDefaultIgnition() {
+  const big = net.comms.reduce((a, b) => (a && a.pop > b.pop ? a : b), null);
+  const wRad = (scenario.windFrom + 180) * D2R;
+  const ux = Math.sin(wRad), uy = -Math.cos(wRad);   // downwind unit vector
+  const M = 8;
+  const ok = (x, y) => x >= M && y >= M && x < N - M && y < N - M && fire.rHead[idx(x, y)] > 0.5;
+
+  if (big) {
+    for (let d = Math.round(N * 0.34); d >= 24; d -= 3) {
+      for (const jitter of [0, 0.22, -0.22, 0.44, -0.44]) {
+        const th = Math.atan2(uy, ux) + Math.PI + jitter;
+        const x = Math.round(big.x + Math.cos(th) * d), y = Math.round(big.y + Math.sin(th) * d);
+        if (ok(x, y)) { scenario.ignition = [{ x, y }]; return; }
+      }
+    }
+  }
+  // fall back to the fastest-spreading cell anywhere with room to run
+  let best = -1, bestR = 0;
+  for (let i = 0; i < N * N; i++) {
+    const x = i % N, y = (i / N) | 0;
+    if (!ok(x, y)) continue;
+    if (fire.rHead[i] > bestR) { bestR = fire.rHead[i]; best = i; }
+  }
+  scenario.ignition = best >= 0
+    ? [{ x: best % N, y: (best / N) | 0 }]
+    : [{ x: N >> 1, y: N >> 1 }];
+}
+/* -------------------------------------------------------------- 50 render */
+const cv = document.getElementById('map');
+const ctx = cv.getContext('2d');
+const off = {
+  terrain: document.createElement('canvas'),
+  fire: document.createElement('canvas'),
+  iso: document.createElement('canvas')
+};
+for (const k in off) { off[k].width = N; off[k].height = N; }
+const octx = { terrain: off.terrain.getContext('2d'), fire: off.fire.getContext('2d'), iso: off.iso.getContext('2d') };
+
+const view = { zoom: 1, panX: 0, panY: 0, scale: 1, ox: 0, oy: 0, w: 0, h: 0, dpr: 1 };
+const layers = {
+  hillshade: true, fuel: true, fire: true, iso: false, smoke: true,
+  roads: true, routes: true, zones: true, labels: true
+};
+let simT = 0;                 // current time, minutes since ignition
+let selectedComm = -1;
+let hoverCell = -1;
+
+function fitView() {
+  const wrap = document.getElementById('mapwrap');
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const w = wrap.clientWidth, h = wrap.clientHeight;
+  cv.width = w * dpr; cv.height = h * dpr;
+  cv.style.width = w + 'px'; cv.style.height = h + 'px';
+  view.dpr = dpr; view.w = w; view.h = h;
+  const base = Math.min(w, h) / N;
+  view.scale = base * view.zoom;
+  view.ox = (w - N * view.scale) / 2 + view.panX;
+  view.oy = (h - N * view.scale) / 2 + view.panY;
+}
+const sx = x => x * view.scale + view.ox;
+const sy = y => y * view.scale + view.oy;
+const inv = (px, py) => ({ x: (px - view.ox) / view.scale, y: (py - view.oy) / view.scale });
+
+/* ---------------------------------------------------------- terrain layer */
+function paintTerrain() {
+  const img = octx.terrain.createImageData(N, N);
+  const d = img.data;
+  for (let i = 0; i < N * N; i++) {
+    const f = FUELS[land.fuel[i]];
+    let r = f.col[0], g = f.col[1], b = f.col[2];
+    if (!layers.fuel) {
+      const e = (land.elev[i] - land.minE) / (land.maxE - land.minE);
+      r = 60 + e * 130; g = 62 + e * 120; b = 58 + e * 100;
+    }
+    if (layers.hillshade && land.fuel[i] !== F_WATER) {
+      const s = 0.55 + land.shade[i] * 0.85;
+      r *= s; g *= s; b *= s;
+      // subtle elevation tint keeps the high country readable
+      const e = (land.elev[i] - land.minE) / (land.maxE - land.minE);
+      r += e * 26; g += e * 24; b += e * 30;
+    }
+    const o = i * 4;
+    d[o] = clamp(r, 0, 255); d[o + 1] = clamp(g, 0, 255); d[o + 2] = clamp(b, 0, 255); d[o + 3] = 255;
+  }
+  octx.terrain.putImageData(img, 0, 0);
+}
+
+/* --------------------------------------------------------- isochrone layer */
+const ISO_STEP = 120;   // minutes between arrival-time contours
+function paintIso() {
+  const img = octx.iso.createImageData(N, N);
+  const d = img.data;
+  const step = ISO_STEP;
+  for (let y = 1; y < N; y++) for (let x = 1; x < N; x++) {
+    const i = idx(x, y), a = fire.arrival[i];
+    if (a === INF) continue;
+    const bi = Math.floor(a / step);
+    const l = fire.arrival[idx(x - 1, y)], u = fire.arrival[idx(x, y - 1)];
+    // only where two *reached* cells straddle a band boundary — otherwise every
+    // unburned island gets outlined and the layer turns to noise
+    const edge = (l !== INF && Math.floor(l / step) < bi) || (u !== INF && Math.floor(u / step) < bi);
+    if (!edge) continue;
+    const o = i * 4;
+    const major = bi % 3 === 0;
+    d[o] = 255; d[o + 1] = major ? 246 : 208; d[o + 2] = major ? 226 : 156;
+    d[o + 3] = major ? 190 : 105;
+  }
+  octx.iso.putImageData(img, 0, 0);
+}
+
+/* -------------------------------------------------------------- fire layer */
+const fireImg = { data: null };
+function paintFire(t) {
+  if (!fireImg.data) fireImg.data = octx.fire.createImageData(N, N);
+  const img = fireImg.data, d = img.data;
+  for (let i = 0; i < N * N; i++) {
+    const a = fire.arrival[i];
+    const o = i * 4;
+    if (a === INF || a > t) { d[o + 3] = 0; continue; }
+    const dt = t - a;
+    let r, g, b, al;
+    if (dt < 5) {            // flaming front
+      const k = dt / 5;
+      r = 255; g = 232 - k * 90; b = 150 - k * 130; al = 255;
+    } else if (dt < 22) {    // ember / residual heat
+      const k = (dt - 5) / 17;
+      r = 255 - k * 80; g = 142 - k * 80; b = 20 + k * 6; al = 250;
+    } else if (dt < 75) {    // cooling
+      const k = (dt - 22) / 53;
+      r = 175 - k * 118; g = 62 - k * 24; b = 26 - k * 2; al = 240 - k * 55;
+    } else {                 // scar — semi-opaque so hillshade still reads
+      r = 57; g = 38; b = 34; al = 185;
+    }
+    d[o] = r; d[o + 1] = g; d[o + 2] = b; d[o + 3] = al;
+  }
+  octx.fire.putImageData(img, 0, 0);
+}
+
+/* ------------------------------------------------------------------ smoke */
+function drawSmoke(t) {
+  // centroid of the active front, plume drawn downwind
+  let cx = 0, cy = 0, n = 0;
+  for (let i = 0; i < N * N; i += 3) {
+    const a = fire.arrival[i];
+    if (a === INF || a > t || t - a > 25) continue;
+    cx += i % N; cy += (i / N) | 0; n++;
+  }
+  if (n < 6) return;
+  cx /= n; cy /= n;
+  const wRad = (scenario.windFrom + 180) * D2R;
+  const ux = Math.sin(wRad), uy = -Math.cos(wRad);
+  const spread = clamp(Math.sqrt(n) * 1.4, 10, 90);
+  const reach = spread * 2.6 + scenario.windSpeed * 4;
+  const x0 = sx(cx), y0 = sy(cy);
+  const x1 = sx(cx + ux * reach), y1 = sy(cy + uy * reach);
+  const L = Math.hypot(x1 - x0, y1 - y0);
+  const W = Math.max(8, spread * view.scale * 0.9);
+
+  ctx.save();
+  ctx.translate(x0, y0);
+  ctx.rotate(Math.atan2(y1 - y0, x1 - x0));
+  const PUFFS = 16;
+  for (let k = 0; k < PUFFS; k++) {
+    const f = k / (PUFFS - 1);
+    const px = f * L;
+    const pr = W * (0.5 + f * 1.5);
+    const alpha = 0.16 * (1 - f) * (1 - f) + 0.02;
+    const g = ctx.createRadialGradient(px, 0, 0, px, 0, pr);
+    g.addColorStop(0, `rgba(172,163,152,${alpha.toFixed(3)})`);
+    g.addColorStop(1, 'rgba(160,152,144,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(px, 0, pr, 0, 7); ctx.fill();
+  }
+  ctx.restore();
+}
+
+/* ------------------------------------------------------------------ roads */
+function roadState(e, t) {
+  if (e.fireT <= t) return 'closed';
+  if (e.fireT - t < 30) return 'threat';
+  if (e.vol > e.cap * 0.9) return 'jam';
+  if (e.vol > e.cap * 0.6) return 'busy';
+  return 'open';
+}
+/* Colour alone can't carry five states legibly on a busy map, so the two
+   fire-driven states also get a dash pattern.                              */
+const ROAD_STATE = {
+  open:   { col: null,      dash: null },
+  busy:   { col: '#fab219', dash: null },
+  jam:    { col: '#ec835a', dash: null },
+  threat: { col: '#d03b3b', dash: [9, 5] },
+  closed: { col: '#7a2a2a', dash: [3, 5], alpha: 0.85 }
+};
+
+function drawRoads(t) {
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  for (const pass of [0, 1]) {
+    for (const e of net.edges) {
+      const st = roadState(e, t);
+      const isAlert = st === 'closed' || st === 'jam' || st === 'threat';
+      if ((pass === 0) === isAlert) continue;
+      const cc = ROAD_CLASS[e.cls];
+      const w = Math.max(1, cc.w * view.scale * 0.55);
+      ctx.beginPath();
+      for (let k = 0; k < e.cells.length; k++) {
+        const c = e.cells[k], X = sx(c % N + 0.5), Y = sy(((c / N) | 0) + 0.5);
+        k ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y);
+      }
+      // casing
+      ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.lineWidth = w + 2; ctx.setLineDash([]);
+      ctx.stroke();
+      const sState = ROAD_STATE[st];
+      ctx.strokeStyle = sState.col || cc.col;
+      ctx.lineWidth = w;
+      if (sState.dash) ctx.setLineDash(sState.dash.map(v => v * Math.max(0.6, view.scale * 0.4)));
+      if (sState.alpha) ctx.globalAlpha = sState.alpha;
+      ctx.stroke();
+      ctx.setLineDash([]); ctx.globalAlpha = 1;
+    }
+  }
+}
+
+/* ----------------------------------------------------------------- routes */
+let dashPhase = 0;
+function drawRoutes(t) {
+  const list = selectedComm >= 0 ? [evac.results[selectedComm]] : evac.results;
+  for (const R of list) {
+    if (!R || !R.route) continue;
+    ctx.beginPath();
+    for (const eid of R.route.edges) {
+      const e = net.edges[eid];
+      for (let k = 0; k < e.cells.length; k++) {
+        const c = e.cells[k], X = sx(c % N + 0.5), Y = sy(((c / N) | 0) + 0.5);
+        k ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y);
+      }
+    }
+    ctx.strokeStyle = 'rgba(57,135,229,0.28)';
+    ctx.lineWidth = Math.max(3, 5 * view.scale * 0.55);
+    ctx.stroke();
+    ctx.strokeStyle = '#7fb2f2';
+    ctx.lineWidth = Math.max(1.4, 2.2 * view.scale * 0.55);
+    ctx.setLineDash([7, 7]); ctx.lineDashOffset = -dashPhase;
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  // vehicles in transit
+  ctx.fillStyle = '#cfe3ff';
+  for (const R of list) {
+    if (!R || !R.route) continue;
+    const pts = [];
+    for (const eid of R.route.edges) for (const c of net.edges[eid].cells) pts.push(c);
+    if (pts.length < 2) continue;
+    for (const leg of R.legs) {
+      if (!leg.ok || leg.arrive === INF) continue;
+      if (t < leg.depart || t > leg.arrive) continue;
+      const f = (t - leg.depart) / Math.max(leg.arrive - leg.depart, 0.001);
+      const c = pts[clamp(Math.floor(f * (pts.length - 1)), 0, pts.length - 1)];
+      const X = sx(c % N + 0.5), Y = sy(((c / N) | 0) + 0.5);
+      ctx.beginPath(); ctx.arc(X, Y, Math.max(2, 2.6 * view.zoom), 0, 7); ctx.fill();
+    }
+  }
+}
+
+/* ---------------------------------------------------------------- markers */
+function tierColor(css) {
+  return { critical: '#d03b3b', serious: '#ec835a', warning: '#fab219', good: '#0ca30c' }[css];
+}
+function drawMarkers(t) {
+  // shelters
+  for (const s of net.shelters) {
+    const X = sx(s.x + 0.5), Y = sy(s.y + 0.5);
+    const r = Math.max(6, 7 * view.zoom);
+    ctx.beginPath(); ctx.arc(X, Y, r, 0, 7);
+    ctx.fillStyle = 'rgba(12,163,12,0.22)'; ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = '#0ca30c'; ctx.stroke();
+    ctx.strokeStyle = '#eafbea'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(X - r * 0.42, Y); ctx.lineTo(X + r * 0.42, Y);
+    ctx.moveTo(X, Y - r * 0.42); ctx.lineTo(X, Y + r * 0.42);
+    ctx.stroke();
+    if (layers.labels && view.zoom > 0.9) label(s.name, X, Y - r - 4, '#bfe6bf');
+  }
+  // communities
+  evac.results.forEach((R, i) => {
+    const c = net.comms[i];
+    const X = sx(c.x + 0.5), Y = sy(c.y + 0.5);
+    const rad = Math.max(5, (4 + Math.sqrt(c.pop) / 22) * view.zoom);
+    const col = tierColor(R.tier.css);
+    const threatened = c.fireT <= t;
+    if (layers.zones) {
+      ctx.beginPath(); ctx.arc(X, Y, rad * 2.5, 0, 7);
+      ctx.fillStyle = col + '22'; ctx.fill();
+      ctx.strokeStyle = col + '66'; ctx.lineWidth = 1; ctx.setLineDash([3, 3]); ctx.stroke(); ctx.setLineDash([]);
+    }
+    ctx.beginPath(); ctx.arc(X, Y, rad, 0, 7);
+    ctx.fillStyle = threatened ? '#3a2422' : '#1c1c1b';
+    ctx.fill();
+    ctx.lineWidth = i === selectedComm ? 3 : 2;
+    ctx.strokeStyle = i === selectedComm ? '#ffffff' : col;
+    ctx.stroke();
+    if (R.atRiskPop > 1) {
+      ctx.beginPath(); ctx.arc(X, Y, rad + 4, 0, 7);
+      ctx.strokeStyle = '#d03b3b'; ctx.lineWidth = 1.5; ctx.setLineDash([2, 3]); ctx.stroke(); ctx.setLineDash([]);
+    }
+    if (layers.labels && view.zoom > 0.75)
+      label(c.name, X, Y - rad - 4, i === selectedComm ? '#ffffff' : '#e7e5dd');
+  });
+  // NASA FIRMS satellite thermal detections inside the current domain.
+  // These are observations, not confirmed wildfire perimeters.
+  if (typeof realHotspots !== 'undefined' && realHotspots.ready) {
+    for (const h of realHotspots.hotspots) {
+      if (!h.withinDomain) continue;
+      const c = latLonToCell(h.lat, h.lon);
+      const X = sx(c.x + 0.5), Y = sy(c.y + 0.5);
+      const r = Math.max(3.5, 4.5 * view.zoom);
+      ctx.save();
+      ctx.beginPath(); ctx.arc(X, Y, r + 3, 0, 7);
+      ctx.fillStyle = 'rgba(255,130,70,0.15)'; ctx.fill();
+      ctx.beginPath(); ctx.arc(X, Y, r, 0, 7);
+      ctx.fillStyle = '#ff8246'; ctx.fill();
+      ctx.strokeStyle = '#ffe1c7'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  // ignition points
+  for (const ig of scenario.ignition) {
+    const X = sx(ig.x + 0.5), Y = sy(ig.y + 0.5);
+    ctx.save();
+    ctx.strokeStyle = '#ffd27a'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(X, Y, 7, 0, 7); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(X - 10, Y); ctx.lineTo(X - 4, Y);
+    ctx.moveTo(X + 4, Y); ctx.lineTo(X + 10, Y);
+    ctx.moveTo(X, Y - 10); ctx.lineTo(X, Y - 4);
+    ctx.moveTo(X, Y + 4); ctx.lineTo(X, Y + 10);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+function label(text, X, Y, col) {
+  ctx.font = '600 11px system-ui,-apple-system,sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+  ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.72)';
+  ctx.strokeText(text, X, Y);
+  ctx.fillStyle = col; ctx.fillText(text, X, Y);
+  ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
+}
+
+/* ------------------------------------------------------------ wind ribbon */
+function drawWindHint() {
+  const wRad = (scenario.windFrom + 180) * D2R;
+  const ux = Math.sin(wRad), uy = -Math.cos(wRad);
+  const cxp = view.w - 64, cyp = view.h - 54;
+  ctx.save();
+  ctx.translate(cxp, cyp);
+  ctx.globalAlpha = 0.85;
+  ctx.strokeStyle = '#c3c2b7'; ctx.fillStyle = '#c3c2b7'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(-ux * 20, -uy * 20); ctx.lineTo(ux * 18, uy * 18); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(ux * 24, uy * 24);
+  ctx.lineTo(ux * 14 - uy * 6, uy * 14 + ux * 6);
+  ctx.lineTo(ux * 14 + uy * 6, uy * 14 - ux * 6);
+  ctx.closePath(); ctx.fill();
+  ctx.font = '600 10px system-ui,sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText(scenario.windSpeed.toFixed(0) + ' m/s', 0, 40);
+  ctx.textAlign = 'start';
+  ctx.restore();
+}
+
+/* ------------------------------------------------------------------ frame */
+function draw() {
+  fitView();
+  ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
+  ctx.clearRect(0, 0, view.w, view.h);
+  ctx.fillStyle = '#0a0a0a'; ctx.fillRect(0, 0, view.w, view.h);
+
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  const W = N * view.scale;
+  ctx.drawImage(off.terrain, view.ox, view.oy, W, W);
+  if (layers.fire) { paintFire(simT); ctx.drawImage(off.fire, view.ox, view.oy, W, W); }
+  if (layers.iso) { ctx.globalAlpha = 0.85; ctx.drawImage(off.iso, view.ox, view.oy, W, W); ctx.globalAlpha = 1; }
+  if (layers.smoke && layers.fire) drawSmoke(simT);
+
+  // domain frame
+  ctx.strokeStyle = 'rgba(255,255,255,0.14)'; ctx.lineWidth = 1;
+  ctx.strokeRect(view.ox + 0.5, view.oy + 0.5, W, W);
+
+  if (layers.roads) drawRoads(simT);
+  if (layers.routes) drawRoutes(simT);
+  drawMarkers(simT);
+  drawWindHint();
+}
+/* ------------------------------------------------------------------ 60 ui */
+const $ = s => document.querySelector(s);
+const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+
+const fmtHM = m => {
+  if (!isFinite(m)) return '—';
+  if (m < 0) return '—';
+  const h = Math.floor(m / 60), mm = Math.round(m % 60);
+  return String(h).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
+};
+const fmtDur = m => {
+  if (!isFinite(m)) return 'no impact';
+  if (m < 0) return '—';
+  const h = Math.floor(m / 60), mm = Math.round(m % 60);
+  return h ? `${h}h ${mm}m` : `${mm}m`;
+};
+const fmtN = n => Math.round(n).toLocaleString('en-US');
+const fmtHa = h => h >= 1000 ? (h / 1000).toFixed(1) + 'k' : Math.round(h).toString();
+
+const PRESETS = {
+  redflag:  { name: 'Red-flag wind event', windSpeed: 15, windFrom: 45,  moisture: 3,  rh: 8,  temp: 38, spotting: true },
+  summer:   { name: 'Typical summer day',  windSpeed: 5,  windFrom: 250, moisture: 8,  rh: 22, temp: 32, spotting: true },
+  marginal: { name: 'Marginal burn day',   windSpeed: 2,  windFrom: 200, moisture: 12, rh: 45, temp: 24, spotting: false }
+};
+
+let igniteArmed = false;
+let playing = false, speed = 12, lastFrame = 0;
+
+/* ------------------------------------------------------- authentication */
+const authState={loading:true,authenticated:false,user:null};
+let csrfToken='';
+async function ensureCsrf(){
+  if(csrfToken) return csrfToken;
+  const r=await fetch('/api/security/csrf',{headers:{Accept:'application/json'}});
+  const d=await r.json().catch(()=>({})); if(!r.ok||!d.token) throw new Error(d.error||'Could not initialize request security');
+  csrfToken=d.token; return csrfToken;
+}
+async function writeFetch(url,opts={}){
+  const token=await ensureCsrf();
+  const headers={...(opts.headers||{}),'X-CSRF-Token':token};
+  let r=await fetch(url,{...opts,headers});
+  if(r.status===403){csrfToken='';const token2=await ensureCsrf();r=await fetch(url,{...opts,headers:{...(opts.headers||{}),'X-CSRF-Token':token2}});}
+  return r;
+}
+async function refreshAuth(){
+  try{const r=await fetch('/api/auth/me',{headers:{Accept:'application/json'}}); const d=await r.json(); authState.authenticated=!!d.authenticated; authState.user=d.user||null;}catch(e){authState.authenticated=false;authState.user=null;}finally{authState.loading=false;}
+  return authState;
+}
+function authDialog(mode='login'){
+  const old=document.getElementById('authModal'); if(old)old.remove();
+  const wrap=el('div'); wrap.id='authModal'; Object.assign(wrap.style,{position:'fixed',inset:'0',background:'rgba(0,0,0,.72)',zIndex:'99999',display:'grid',placeItems:'center',padding:'20px'});
+  const card=el('div'); Object.assign(card.style,{width:'min(420px,100%)',background:'var(--surface-1)',border:'1px solid var(--border-strong)',borderRadius:'12px',padding:'18px',boxShadow:'0 20px 70px rgba(0,0,0,.5)'});
+  const title=el('h3',null,mode==='register'?'Create Ember account':'Sign in to Ember'); title.style.marginBottom='12px'; card.appendChild(title);
+  const fields=[];
+  function field(label,type,name,placeholder){const box=el('div','field'); const l=el('label',null,label); const i=document.createElement('input'); i.type=type;i.name=name;i.placeholder=placeholder||'';i.autocomplete=name==='password'?(mode==='register'?'new-password':'current-password'):name==='email'?'email':'name'; Object.assign(i.style,{width:'100%',padding:'9px 10px',borderRadius:'7px',border:'1px solid var(--border)',background:'var(--surface-2)',outline:'none'}); box.appendChild(l);box.appendChild(i);card.appendChild(box);fields.push(i);return i;}
+  const display=mode==='register'?field('Display name','text','displayName','Your name'):null; const email=field('Email','email','email','you@example.com'); const password=field('Password','password','password',mode==='register'?'At least 8 characters':'Your password');
+  const msg=el('div','note',''); msg.style.minHeight='20px'; msg.style.color='var(--warning)'; card.appendChild(msg);
+  const row=el('div','btnrow'); const submit=el('button','btn primary',mode==='register'?'Create account':'Sign in'); const cancel=el('button','btn','Cancel'); row.appendChild(submit);row.appendChild(cancel);card.appendChild(row);
+  const swap=el('button','btn',mode==='register'?'Already have an account? Sign in':'New here? Create account'); swap.style.marginTop='8px';swap.style.width='100%';card.appendChild(swap);
+  cancel.onclick=()=>wrap.remove(); swap.onclick=()=>{wrap.remove();authDialog(mode==='register'?'login':'register');};
+  submit.onclick=async()=>{submit.disabled=true;msg.textContent='Working…';try{const payload={email:email.value,password:password.value};if(display)payload.displayName=display.value;const r=await writeFetch('/api/auth/'+(mode==='register'?'register':'login'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const d=await r.json();if(!r.ok)throw new Error(d.error||'Authentication failed');authState.authenticated=true;authState.user=d.user;wrap.remove();buildLeft();}catch(e){msg.textContent=e.message||String(e);submit.disabled=false;}};
+  password.onkeydown=e=>{if(e.key==='Enter')submit.click();}; card.addEventListener('click',e=>e.stopPropagation());wrap.onclick=()=>wrap.remove();wrap.appendChild(card);document.body.appendChild(wrap);setTimeout(()=>{(display||email).focus();},0);
+}
+async function logoutEmber(){try{await writeFetch('/api/auth/logout',{method:'POST'});}catch(e){} authState.authenticated=false;authState.user=null;buildLeft();}
+
+/* ------------------------------------------------------- live weather */
+const liveWeather = {
+  loading: false, ready: false, key: '', hourly: [], selected: -1,
+  currentTime: '', timezone: '', source: 'Open-Meteo forecast', lastError: '', manualOverride: false
+};
+const weatherKey = () => `${scenario.centerLat.toFixed(4)},${scenario.centerLon.toFixed(4)}`;
+function invalidateLiveWeather() { liveWeather.ready=false; liveWeather.key=''; liveWeather.hourly=[]; liveWeather.selected=-1; liveWeather.lastError=''; liveWeather.manualOverride=false; }
+function weatherStatusHtml() {
+  if (liveWeather.loading) return '<b>Weather:</b> loading forecast…';
+  if (liveWeather.ready && liveWeather.key===weatherKey() && liveWeather.hourly.length) {
+    const w=liveWeather.hourly[liveWeather.selected>=0?liveWeather.selected:0];
+    return `<b>${liveWeather.manualOverride?'Forecast reference':'Live weather applied'}:</b> ${esc(w.timeLabel)} · ${w.temp.toFixed(1)}°C · RH ${Math.round(w.rh)}% · wind ${w.windSpeed.toFixed(1)} m/s from ${String(Math.round(w.windDirection)).padStart(3,'0')}° · gust ${w.gust.toFixed(1)} m/s · precip ${w.precip.toFixed(1)} mm.<br><span style="color:var(--text-muted)">Open-Meteo model/forecast data. 10 m wind is used as a proxy for Ember’s 20-ft wind input. Fuel moisture remains a separate planning input.${liveWeather.manualOverride?' <b>Manual wind override is active.</b>':''}</span>`;
+  }
+  if (liveWeather.lastError) return `<b>Weather fallback:</b> manual controls active. <span style="color:var(--warning)">${esc(liveWeather.lastError)}</span>`;
+  return '<b>Weather:</b> manual controls active. Load real data to fetch current/forecast conditions.';
+}
+function nearestWeatherIndex(targetMs) {
+  if (!liveWeather.hourly.length) return -1;
+  let bi=0, bd=Infinity;
+  liveWeather.hourly.forEach((w,i)=>{ const d=Math.abs(w.ts-targetMs); if(d<bd){bd=d;bi=i;} });
+  return bi;
+}
+function applyWeatherIndex(i, rerun=true) {
+  if (i<0 || i>=liveWeather.hourly.length) return;
+  liveWeather.selected=i;
+  const w=liveWeather.hourly[i];
+  scenario.windSpeed=clamp(w.windSpeed,0,25);
+  scenario.windFrom=((w.windDirection%360)+360)%360;
+  scenario.temp=w.temp; scenario.rh=w.rh; liveWeather.manualOverride=false;
+  if (rerun) { buildLeft(); syncWind(); queue('fire'); }
+}
+/* ======================================================== wildfire feed */
+/* Stage 6 uses NASA EONET's public event metadata feed. EONET is suitable for
+   locating named/active wildfire incidents, but it is not the same thing as a
+   per-pixel satellite hotspot feed. NASA FIRMS provides the latter and needs a
+   MAP_KEY for web-service access; that belongs behind a backend in Stage 7. */
+const realFires = {
+  loading:false, ready:false, key:'', events:[], source:'NASA EONET',
+  radiusKm:300, lastError:'', loadedAt:0
+};
+function invalidateRealFires(){ realFires.ready=false; realFires.key=''; realFires.events=[]; realFires.lastError=''; }
+function fireFeedKey(){ return `${scenario.centerLat.toFixed(3)},${scenario.centerLon.toFixed(3)},${realFires.radiusKm}`; }
+function haversineKm(aLat,aLon,bLat,bLon){
+  const R=6371, p1=aLat*D2R, p2=bLat*D2R, dp=(bLat-aLat)*D2R, dl=(bLon-aLon)*D2R;
+  const q=Math.sin(dp/2)**2+Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;
+  return 2*R*Math.asin(Math.min(1,Math.sqrt(q)));
+}
+function eonetFeaturePoint(f){
+  const g=f&&f.geometry; if(!g) return null;
+  const c=g.coordinates;
+  if(g.type==='Point' && Array.isArray(c) && c.length>=2) return {lon:+c[0],lat:+c[1]};
+  if(g.type==='MultiPoint' && Array.isArray(c) && c.length){ const z=c[c.length-1]; return {lon:+z[0],lat:+z[1]}; }
+  if(g.type==='LineString' && Array.isArray(c) && c.length){ const z=c[c.length-1]; return {lon:+z[0],lat:+z[1]}; }
+  if(g.type==='Polygon' && Array.isArray(c)&&c[0]&&c[0].length){ let lat=0,lon=0,n=0; for(const z of c[0]){ if(isFinite(z[0])&&isFinite(z[1])){lon+=+z[0];lat+=+z[1];n++;} } return n?{lat:lat/n,lon:lon/n}:null; }
+  return null;
+}
+function eonetObservedAt(f){
+  const p=f&&f.properties||{};
+  return p.date||p.geometryDate||p.closed||'';
+}
+async function fetchWildfireIncidents(){
+  realFires.loading=true; realFires.lastError='';
+  try{
+    const lat=scenario.centerLat, lon=scenario.centerLon, r=realFires.radiusKm;
+    const dLat=r/111.32, dLon=r/Math.max(10,111.32*Math.cos(lat*D2R));
+    const west=clamp(lon-dLon,-180,180), east=clamp(lon+dLon,-180,180), north=clamp(lat+dLat,-89.9,89.9), south=clamp(lat-dLat,-89.9,89.9);
+    const bbox=`${west},${north},${east},${south}`;
+    const q=new URLSearchParams({category:'wildfires',status:'open',days:'30',limit:'100',bbox});
+    const r0=await fetch('/api/wildfires?'+q.toString(),{headers:{'Accept':'application/geo+json,application/json'}});
+    if(!r0.ok) throw new Error('NASA EONET '+r0.status);
+    const d=await r0.json();
+    const ev=[];
+    for(const f of (d.features||[])){
+      const pt=eonetFeaturePoint(f); if(!pt||!isFinite(pt.lat)||!isFinite(pt.lon)) continue;
+      const props=f.properties||{}, dist=haversineKm(lat,lon,pt.lat,pt.lon);
+      ev.push({
+        id:String(props.id||f.id||''), title:props.title||'Wildfire event', lat:pt.lat, lon:pt.lon,
+        distanceKm:dist, observedAt:eonetObservedAt(f), link:props.link||'', source:props.sources||[],
+        withinDomain:(()=>{const c=latLonToCell(pt.lat,pt.lon);return c.x>=0&&c.y>=0&&c.x<N&&c.y<N;})()
+      });
+    }
+    ev.sort((a,b)=>a.distanceKm-b.distanceKm);
+    realFires.events=ev; realFires.key=fireFeedKey(); realFires.ready=true; realFires.loadedAt=Date.now();
+    return true;
+  }catch(e){ realFires.ready=false; realFires.lastError=e.message||String(e); throw e; }
+  finally{ realFires.loading=false; }
+}
+function useWildfireEvent(i, centerFirst=false){
+  const e=realFires.events[i]; if(!e) return;
+  if(centerFirst || !e.withinDomain){
+    scenario.centerLat=e.lat; scenario.centerLon=e.lon; scenario.locationName=e.title;
+    scenario.seed=seedFromGeo(e.lat,e.lon);
+    scenario.ignitionSource=`NASA EONET incident: ${e.title}`; scenario.ignitionSourceUrl=e.link||''; scenario.ignitionObservedAt=e.observedAt||'';
+    invalidateRealLandscape(); invalidateRealRoads(); invalidateRealPlaces(); invalidateLiveWeather(); invalidateRealFires(); invalidateRealHotspots();
+    dirtyLandscape=true; buildLeft(); syncWind(); refreshRealData(true); return;
+  }
+  const p=latLonToCell(e.lat,e.lon), x=clamp(Math.round(p.x),0,N-1), y=clamp(Math.round(p.y),0,N-1);
+  if(!FUELS[land.fuel[idx(x,y)]].burn){ alert('The reported incident point falls on a non-burnable cell in the current fuel proxy. Center the area on the incident or choose a nearby manual ignition.'); return; }
+  scenario.ignition=[{x,y}]; scenario.ignitionSource=`NASA EONET incident: ${e.title}`; scenario.ignitionSourceUrl=e.link||''; scenario.ignitionObservedAt=e.observedAt||'';
+  queue('fire'); buildLeft(); syncWind();
+}
+function wildfireStatusHtml(){
+  if(realFires.loading) return '<b>Wildfire feed:</b> checking NASA EONET…';
+  if(realFires.ready && realFires.key===fireFeedKey()) return `<b>NASA EONET:</b> ${realFires.events.length} open wildfire event${realFires.events.length===1?'':'s'} found within ${realFires.radiusKm} km in the last 30 days. <span style="color:var(--text-muted)">Event metadata, not satellite hotspot pixels.</span>`;
+  if(realFires.lastError) return `<b>Wildfire feed fallback:</b> manual ignition remains available. <span style="color:var(--warning)">${esc(realFires.lastError)}</span>`;
+  return '<b>Wildfire feed:</b> not loaded. Manual ignition remains available.';
+}
+
+/* ================================================= NASA FIRMS hotspots */
+const realHotspots={
+  loading:false, ready:false, configured:null, key:'', hotspots:[], source:'VIIRS_NOAA20_NRT',
+  days:2, radiusKm:35, lastError:'', loadedAt:0
+};
+function invalidateRealHotspots(){ realHotspots.ready=false; realHotspots.key=''; realHotspots.hotspots=[]; realHotspots.lastError=''; }
+function hotspotFeedKey(){ return `${scenario.centerLat.toFixed(3)},${scenario.centerLon.toFixed(3)},${realHotspots.radiusKm},${realHotspots.source},${realHotspots.days}`; }
+function hotspotBbox(){
+  const lat=scenario.centerLat,lon=scenario.centerLon,r=realHotspots.radiusKm;
+  const dLat=r/111.32,dLon=r/Math.max(10,111.32*Math.cos(lat*D2R));
+  return [clamp(lon-dLon,-179.999,179.999),clamp(lat-dLat,-89.9,89.9),clamp(lon+dLon,-179.999,179.999),clamp(lat+dLat,-89.9,89.9)];
+}
+function firmsObservedAt(h){
+  if(!h.acqDate)return ''; const t=String(h.acqTime||'').padStart(4,'0');
+  return `${h.acqDate} ${t.slice(0,2)}:${t.slice(2,4)} UTC`;
+}
+async function fetchFirmsHotspots(){
+  realHotspots.loading=true; realHotspots.lastError='';
+  try{
+    const st=await fetch('/api/firms/status',{headers:{Accept:'application/json'}}); const sj=await st.json();
+    realHotspots.configured=!!sj.configured;
+    if(!realHotspots.configured){ realHotspots.ready=false; realHotspots.hotspots=[]; realHotspots.key=hotspotFeedKey(); return false; }
+    const q=new URLSearchParams({bbox:hotspotBbox().join(','),source:realHotspots.source,days:String(realHotspots.days)});
+    const r=await fetch('/api/firms/hotspots?'+q.toString(),{headers:{Accept:'application/json'}});
+    const d=await r.json(); if(!r.ok) throw new Error(d.error||`NASA FIRMS ${r.status}`);
+    const hs=(d.hotspots||[]).map((h,i)=>{
+      const lat=+h.latitude,lon=+h.longitude,cell=latLonToCell(lat,lon);
+      return {...h,id:`${h.satellite||'sat'}-${h.acqDate||''}-${h.acqTime||''}-${i}`,lat,lon,
+        distanceKm:haversineKm(scenario.centerLat,scenario.centerLon,lat,lon),
+        withinDomain:cell.x>=0&&cell.y>=0&&cell.x<N&&cell.y<N};
+    }).filter(h=>isFinite(h.lat)&&isFinite(h.lon)).sort((a,b)=>a.distanceKm-b.distanceKm);
+    realHotspots.hotspots=hs; realHotspots.ready=true; realHotspots.key=hotspotFeedKey(); realHotspots.loadedAt=Date.now();
+    return true;
+  }catch(e){ realHotspots.ready=false; realHotspots.lastError=e.message||String(e); throw e; }
+  finally{ realHotspots.loading=false; }
+}
+function useFirmsHotspot(i,centerFirst=false){
+  const h=realHotspots.hotspots[i]; if(!h)return;
+  if(centerFirst||!h.withinDomain){
+    scenario.centerLat=h.lat;scenario.centerLon=h.lon;scenario.locationName=`FIRMS hotspot ${firmsObservedAt(h)}`;
+    scenario.seed=seedFromGeo(h.lat,h.lon);scenario.ignitionSource=`NASA FIRMS ${h.instrument||'satellite'} hotspot (${h.satellite||realHotspots.source})`;
+    scenario.ignitionSourceUrl='';scenario.ignitionObservedAt=firmsObservedAt(h);
+    invalidateRealLandscape();invalidateRealRoads();invalidateRealPlaces();invalidateLiveWeather();invalidateRealFires();invalidateRealHotspots();
+    dirtyLandscape=true;buildLeft();syncWind();refreshRealData(true);return;
+  }
+  const p=latLonToCell(h.lat,h.lon),x=clamp(Math.round(p.x),0,N-1),y=clamp(Math.round(p.y),0,N-1);
+  if(!FUELS[land.fuel[idx(x,y)]].burn){alert('This satellite hotspot falls on a non-burnable cell in the current land-cover proxy. Center on the hotspot or choose a nearby burnable ignition cell.');return;}
+  scenario.ignition=[{x,y}];scenario.ignitionSource=`NASA FIRMS ${h.instrument||'satellite'} hotspot (${h.satellite||realHotspots.source})`;scenario.ignitionSourceUrl='';scenario.ignitionObservedAt=firmsObservedAt(h);
+  queue('fire');buildLeft();syncWind();
+}
+function firmsStatusHtml(){
+  if(realHotspots.loading)return '<b>Satellite hotspots:</b> checking NASA FIRMS…';
+  if(realHotspots.configured===false)return '<b>NASA FIRMS:</b> server key not configured. Add <code>FIRMS_MAP_KEY</code> to <code>.env</code> to enable satellite thermal detections. EONET/manual ignition still work.';
+  if(realHotspots.ready&&realHotspots.key===hotspotFeedKey()){
+    const inside=realHotspots.hotspots.filter(h=>h.withinDomain).length;
+    return `<b>NASA FIRMS:</b> ${realHotspots.hotspots.length} ${esc(realHotspots.source)} thermal detection${realHotspots.hotspots.length===1?'':'s'} within ${realHotspots.radiusKm} km over the latest ${realHotspots.days} day${realHotspots.days===1?'':'s'} · ${inside} inside the simulation box. <span style="color:var(--text-muted)">Thermal anomalies are not automatically confirmed wildfires.</span>`;
+  }
+  if(realHotspots.lastError)return `<b>FIRMS fallback:</b> EONET/manual ignition remains available. <span style="color:var(--warning)">${esc(realHotspots.lastError)}</span>`;
+  return '<b>NASA FIRMS:</b> not checked yet.';
+}
+
+async function fetchLiveWeather(apply=true) {
+  liveWeather.loading=true; liveWeather.lastError='';
+  try {
+    const q=new URLSearchParams({
+      latitude:String(scenario.centerLat), longitude:String(scenario.centerLon),
+      current:'temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m,wind_direction_10m,wind_gusts_10m',
+      hourly:'temperature_2m,relative_humidity_2m,precipitation,wind_speed_10m,wind_direction_10m,wind_gusts_10m',
+      wind_speed_unit:'ms', timezone:'auto', timeformat:'unixtime', forecast_days:'2'
+    });
+    const r=await fetch('/api/weather?latitude='+encodeURIComponent(scenario.centerLat)+'&longitude='+encodeURIComponent(scenario.centerLon),{headers:{'Accept':'application/json'}});
+    if(!r.ok) throw new Error('weather service '+r.status);
+    const d=await r.json(); const h=d.hourly||{};
+    if(!h.time || !h.time.length) throw new Error('weather forecast returned no hourly data');
+    const tz=d.timezone||'UTC';
+    const tf=new Intl.DateTimeFormat([], {timeZone:tz,weekday:'short',hour:'2-digit',minute:'2-digit'});
+    liveWeather.hourly=h.time.map((t,i)=>({
+      ts:+t*1000, time:t, timeLabel:tf.format(new Date(+t*1000)),
+      temp:+h.temperature_2m[i], rh:+h.relative_humidity_2m[i], precip:+h.precipitation[i]||0,
+      windSpeed:+h.wind_speed_10m[i]||0, windDirection:+h.wind_direction_10m[i]||0, gust:+h.wind_gusts_10m[i]||0
+    })).filter(w=>Number.isFinite(w.ts)&&Number.isFinite(w.temp));
+    liveWeather.key=weatherKey(); liveWeather.timezone=tz; liveWeather.ready=liveWeather.hourly.length>0;
+    const curTs=d.current&&d.current.time?+d.current.time*1000:Date.now();
+    liveWeather.selected=nearestWeatherIndex(curTs);
+    if(apply) applyWeatherIndex(liveWeather.selected,false);
+    return true;
+  } catch(e) {
+    liveWeather.ready=false; liveWeather.lastError=e.message||String(e); throw e;
+  } finally { liveWeather.loading=false; }
+}
+
+
+async function backendHealth(){ try{const r=await fetch('/api/health'); return r.ok?await r.json():null;}catch(e){return null;} }
+function scenarioSnapshot(){ return {scenario:{...scenario},evac:{mobilizationMin:evac.mobilizationMin,staged:evac.staged}}; }
+async function saveScenarioToServer(){
+  if(!authState.authenticated){authDialog('login');return;} const name=prompt('Scenario name', scenario.locationName?`${scenario.locationName} wildfire scenario`:'Ember scenario'); if(!name)return;
+  try{const r=await writeFetch('/api/scenarios',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,payload:scenarioSnapshot()})}); const d=await r.json().catch(()=>({})); if(r.status===401){authState.authenticated=false;authState.user=null;buildLeft();authDialog('login');return;} if(!r.ok)throw new Error(d.error||('save '+r.status)); alert(`Scenario saved (#${d.id}) to your account.`);}catch(e){alert('Could not save scenario: '+(e.message||e));}
+}
+async function loadScenarioFromServer(){
+  if(!authState.authenticated){authDialog('login');return;} try{const r=await fetch('/api/scenarios'); const d=await r.json().catch(()=>({})); if(r.status===401){authState.authenticated=false;authState.user=null;buildLeft();authDialog('login');return;} if(!r.ok)throw new Error(d.error||'Could not list scenarios'); if(!d.scenarios.length){alert('You have no saved scenarios yet.');return;} const menu=d.scenarios.slice(0,12).map(x=>`${x.id}: ${x.name}`).join('\n'); const id=prompt('Enter one of your scenario IDs to load:\n\n'+menu); if(!id)return; const rr=await fetch('/api/scenarios/'+encodeURIComponent(id)); const row=await rr.json().catch(()=>({})); if(!rr.ok)throw new Error(row.error||'Could not load scenario'); const p=row.payload||{}; Object.assign(scenario,p.scenario||{}); if(p.evac)Object.assign(evac,p.evac); invalidateRealLandscape();invalidateRealRoads();invalidateRealPlaces();invalidateLiveWeather();invalidateRealFires();invalidateRealHotspots();dirtyLandscape=true; await refreshRealData(); alert(`Loaded: ${row.name}`);}catch(e){alert('Could not load scenario: '+(e.message||e));}
+}
+
+/* =========================================================== left panel   */
+function buildLeft() {
+  const p = $('#leftpanel');
+  p.innerHTML = '';
+
+  const acct=el('div','sec'); acct.appendChild(el('h2',null,'Account'));
+  if(authState.loading){acct.appendChild(el('div','note','Checking sign-in status…'));}
+  else if(authState.authenticated&&authState.user){acct.appendChild(el('div','location-card',`<b>${esc(authState.user.displayName)}</b><br><span style="color:var(--text-muted)">${esc(authState.user.email)} · private scenario workspace</span>`)); const ar=el('div','btnrow');ar.style.marginTop='7px';const out=el('button','btn','Sign out');out.onclick=logoutEmber;ar.appendChild(out);acct.appendChild(ar);}
+  else{acct.appendChild(el('div','note','Sign in to save and load private scenarios. Simulation and public data layers can still be used without an account.'));const ar=el('div','btnrow');ar.style.marginTop='7px';const li=el('button','btn primary','Sign in');li.onclick=()=>authDialog('login');const cr=el('button','btn','Create account');cr.onclick=()=>authDialog('register');ar.appendChild(li);ar.appendChild(cr);acct.appendChild(ar);}
+  p.appendChild(acct);
+
+  /* --- scenario presets */
+  const s0 = el('div', 'sec');
+  s0.appendChild(el('h2', null, 'Scenario'));
+  const chips = el('div', 'chips');
+  Object.entries(PRESETS).forEach(([k, v]) => {
+    const c = el('button', 'chip', v.name);
+    c.dataset.k = k;
+    c.onclick = () => { applyPreset(k); };
+    chips.appendChild(c);
+  });
+  s0.appendChild(chips);
+  const persist=el('div','btnrow'); persist.style.marginTop='8px'; const sv=el('button','btn','Save scenario'); sv.onclick=saveScenarioToServer; const ld=el('button','btn','Load saved'); ld.onclick=loadScenarioFromServer; persist.appendChild(sv); persist.appendChild(ld); s0.appendChild(persist);
+  p.appendChild(s0);
+
+  /* --- real-world location */
+  const sg = el('div', 'sec');
+  sg.appendChild(el('h2', null, 'Real-world area'));
+  const lc = el('div', 'location-card');
+  const ls = el('div', 'location-search');
+  const qi = el('input'); qi.id = 'geoQuery'; qi.placeholder = 'Search city, park or coordinates'; qi.value = scenario.locationName || '';
+  const qb = el('button', 'btn', 'Search'); qb.onclick = () => searchLocation(qi.value);
+  qi.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); searchLocation(qi.value); } };
+  ls.appendChild(qi); ls.appendChild(qb); lc.appendChild(ls);
+  lc.appendChild(el('div', 'location-meta', `<b>${scenario.locationName || 'Custom location'}</b><br>${scenario.centerLat.toFixed(5)}, ${scenario.centerLon.toFixed(5)} · ${(DOMAIN_M/1000).toFixed(2)} × ${(DOMAIN_M/1000).toFixed(2)} km`));
+  const ga = el('div', 'location-actions');
+  const gm = el('button', 'btn', 'Choose on map'); gm.onclick = () => openGeoPicker();
+  const gl = el('button', 'btn', 'Use my location'); gl.onclick = () => useBrowserLocation();
+  ga.appendChild(gm); ga.appendChild(gl); lc.appendChild(ga);
+  const ds=el('div','geo-warning'); ds.id='dataStatus'; ds.innerHTML=landscapeStatusHtml(); lc.appendChild(ds);
+  const dl=el('button','btn on','Load / refresh real data'); dl.style.marginTop='7px'; dl.onclick=()=>refreshRealData(); lc.appendChild(dl);
+  sg.appendChild(lc); p.appendChild(sg);
+
+  /* --- fire weather */
+  const s1 = el('div', 'sec');
+  s1.appendChild(el('h2', null, 'Fire weather'));
+
+  const wc=el('div','location-card');
+  const ws=el('div','geo-warning'); ws.id='weatherStatus'; ws.innerHTML=weatherStatusHtml(); wc.appendChild(ws);
+  const wa=el('div','location-actions');
+  const wr=el('button','btn','Refresh weather'); wr.onclick=async()=>{ const busy=$('#busy'); if(busy) busy.classList.add('on'); try{ await fetchLiveWeather(true); buildLeft(); syncWind(); queue('fire'); }catch(e){ buildLeft(); syncWind(); }finally{ if(busy) busy.classList.remove('on'); } }; wa.appendChild(wr);
+  if(liveWeather.ready && liveWeather.key===weatherKey() && liveWeather.hourly.length){
+    const sel=el('select'); sel.style.flex='1'; sel.style.minWidth='0'; sel.style.background='var(--panel-2)'; sel.style.color='var(--text)'; sel.style.border='1px solid var(--line)'; sel.style.borderRadius='4px'; sel.style.padding='6px';
+    const now=Date.now(); liveWeather.hourly.filter(w=>w.ts>=now-3600000 && w.ts<=now+24*3600000).forEach(w=>{ const oi=liveWeather.hourly.indexOf(w); const o=el('option'); o.value=oi; o.textContent=`${w.timeLabel} · ${w.windSpeed.toFixed(1)}m/s · ${Math.round(w.rh)}% RH`; if(oi===liveWeather.selected)o.selected=true; sel.appendChild(o); });
+    sel.onchange=()=>applyWeatherIndex(+sel.value,true); wa.appendChild(sel);
+  }
+  wc.appendChild(wa); s1.appendChild(wc);
+
+  const comp = el('div', 'compass');
+  const dial = el('div', 'dial');
+  dial.innerHTML = '<div class="tickN">N</div><div class="needle" id="needle"></div><div class="hub"></div>';
+  comp.appendChild(dial);
+  const cinfo = el('div');
+  cinfo.style.flex = '1';
+  cinfo.innerHTML = '<div style="color:var(--text-muted);font-size:10px;letter-spacing:.06em;text-transform:uppercase">Wind from</div>' +
+    '<div id="windReadout" style="font-family:var(--mono);font-size:15px"></div>' +
+    '<div class="note" style="margin-top:4px">Drag the dial</div>';
+  comp.appendChild(cinfo);
+  s1.appendChild(comp);
+  dragDial(dial);
+
+  s1.appendChild(slider('windSpeed', 'Wind speed (20 ft / 10 m proxy)', 0, 25, 0.5, v => v.toFixed(1) + ' m/s',
+    v => { scenario.windSpeed = v; liveWeather.manualOverride=true; queue('fire'); }));
+  s1.appendChild(slider('moisture', '1-h dead fuel moisture (manual)', 2, 30, 0.5, v => v.toFixed(1) + ' %',
+    v => { scenario.moisture = v; queue('fire'); }));
+  const spot = toggleRow('Ember spotting', () => scenario.spotting, v => { scenario.spotting = v; queue('fire'); });
+  s1.appendChild(spot);
+  s1.appendChild(el('div', 'note', '<span id="dangerNote"></span>'));
+  p.appendChild(s1);
+
+  /* --- ignition & response */
+  const s2 = el('div', 'sec');
+  s2.appendChild(el('h2', null, 'Ignition &amp; response'));
+  const ig = el('button', 'btn', 'Place ignition on map');
+  ig.style.width = '100%';
+  ig.onclick = () => { igniteArmed = !igniteArmed; ig.classList.toggle('on', igniteArmed); ig.textContent = igniteArmed ? 'Click the map…' : 'Place ignition on map'; };
+  s2.appendChild(ig);
+  s2.appendChild(el('div', 'note', 'Click the simulation map while armed, use the real-map picker, a NASA EONET incident, or a NASA FIRMS satellite hotspot. Everything downstream re-solves.'));
+  const fi=el('div','location-card'); fi.style.marginTop='8px';
+  const fs=el('div','geo-warning'); fs.innerHTML=wildfireStatusHtml(); fi.appendChild(fs);
+  const fa=el('div','location-actions');
+  const fr=el('button','btn','Refresh wildfire feed'); fr.onclick=async()=>{const busy=$('#busy');if(busy)busy.classList.add('on');try{await fetchWildfireIncidents();buildLeft();syncWind();}catch(e){buildLeft();syncWind();}finally{if(busy)busy.classList.remove('on');}}; fa.appendChild(fr); fi.appendChild(fa);
+  if(realFires.ready&&realFires.key===fireFeedKey()&&realFires.events.length){
+    const list=el('div'); list.style.marginTop='7px';
+    realFires.events.slice(0,5).forEach((e,i)=>{
+      const row=el('div','geo-warning'); row.style.marginTop='5px';
+      const dt=e.observedAt?` · ${esc(String(e.observedAt).slice(0,10))}`:'';
+      row.innerHTML=`<b>${esc(e.title)}</b><br>${e.distanceKm.toFixed(1)} km away${dt} · ${e.lat.toFixed(4)}, ${e.lon.toFixed(4)}<div class="location-actions" style="margin-top:5px"></div>`;
+      const a=row.querySelector('.location-actions'); const b=el('button','btn',e.withinDomain?'Use as ignition':'Center on incident'); b.onclick=()=>useWildfireEvent(i,!e.withinDomain); a.appendChild(b); list.appendChild(row);
+    }); fi.appendChild(list);
+  }
+  const hsBox=el('div','location-card'); hsBox.style.marginTop='8px';
+  const hss=el('div','geo-warning'); hss.innerHTML=firmsStatusHtml(); hsBox.appendChild(hss);
+  const hsa=el('div','location-actions');
+  const hsr=el('button','btn','Refresh satellite hotspots'); hsr.onclick=async()=>{const busy=$('#busy');if(busy)busy.classList.add('on');try{await fetchFirmsHotspots();}catch(e){}finally{buildLeft();syncWind();draw();if(busy)busy.classList.remove('on');}}; hsa.appendChild(hsr); hsBox.appendChild(hsa);
+  if(realHotspots.ready&&realHotspots.key===hotspotFeedKey()&&realHotspots.hotspots.length){
+    const hlist=el('div'); hlist.style.marginTop='7px';
+    realHotspots.hotspots.slice(0,8).forEach((h,i)=>{
+      const row=el('div','geo-warning'); row.style.marginTop='5px'; const obs=firmsObservedAt(h); const conf=h.confidence!==''?` · conf ${esc(String(h.confidence))}`:''; const frp=isFinite(h.frp)?` · FRP ${h.frp.toFixed(1)} MW`:'';
+      row.innerHTML=`<b>${esc(h.instrument||'Satellite')} ${esc(h.satellite||'')}</b><br>${h.distanceKm.toFixed(1)} km away · ${esc(obs)}${conf}${frp}<br>${h.lat.toFixed(4)}, ${h.lon.toFixed(4)}<div class="location-actions" style="margin-top:5px"></div>`;
+      const a=row.querySelector('.location-actions');const b=el('button','btn',h.withinDomain?'Use as ignition':'Center on hotspot');b.onclick=()=>useFirmsHotspot(i,!h.withinDomain);a.appendChild(b);hlist.appendChild(row);
+    });hsBox.appendChild(hlist);
+  }
+  fi.appendChild(hsBox);
+  const src=el('div','note',`Ignition source: <b>${esc(scenario.ignitionSource||'Manual planning ignition')}</b>${scenario.ignitionObservedAt?` · ${esc(String(scenario.ignitionObservedAt).slice(0,19))}`:''}`); fi.appendChild(src);
+  s2.appendChild(fi);
+  const sp = el('div'); sp.style.height = '9px'; s2.appendChild(sp);
+  s2.appendChild(slider('respondMin', 'Detection → evacuation order', 0, 120, 5, v => fmtDur(v),
+    v => { scenario.respondMin = v; queue('evac'); }));
+  s2.appendChild(slider('mobilizationMin', 'Household mobilisation spread', 15, 180, 5, v => fmtDur(v),
+    v => { evac.mobilizationMin = v; queue('evac'); }, evac));
+  s2.appendChild(toggleRow('Staged (phased) evacuation', () => evac.staged, v => { evac.staged = v; queue('evac'); }));
+  p.appendChild(s2);
+
+  /* --- landscape */
+  const s3 = el('div', 'sec');
+  s3.appendChild(el('h2', null, 'Landscape'));
+  const row = el('div', 'btnrow');
+  const nb = el('button', 'btn', 'New synthetic terrain');
+  nb.onclick = () => { scenario.seed = (Math.random() * 1e9) | 0; invalidateRealLandscape(); invalidateRealRoads(); invalidateRealPlaces(); invalidateLiveWeather(); invalidateRealFires(); invalidateRealHotspots(); dirtyLandscape = true; queue('all'); setTimeout(()=>updateLandscapeStatus(),80); };
+  const rb = el('button', 'btn', 'Reset view');
+  rb.onclick = () => { view.zoom = 1; view.panX = 0; view.panY = 0; draw(); };
+  row.appendChild(nb); row.appendChild(rb);
+  s3.appendChild(row);
+  s3.appendChild(el('div', 'note', '<span id="seedNote"></span>'));
+  p.appendChild(s3);
+
+  /* --- layers */
+  const s4 = el('div', 'sec');
+  s4.appendChild(el('h2', null, 'Layers'));
+  const tg = el('div', 'toggles');
+  const defs = [
+    ['fuel', 'Fuel model'], ['hillshade', 'Hillshade'], ['fire', 'Fire &amp; burn scar'],
+    ['smoke', 'Smoke plume'], ['iso', 'Arrival isochrones (2 h)'],
+    ['roads', 'Roads'], ['routes', 'Evacuation routes'], ['zones', 'Zone halos'], ['labels', 'Labels']
+  ];
+  for (const [k, lbl] of defs) {
+    const r = el('label', 'tg');
+    const cb = el('input'); cb.type = 'checkbox'; cb.checked = layers[k];
+    cb.onchange = () => { layers[k] = cb.checked; if (k === 'fuel' || k === 'hillshade') paintTerrain(); draw(); };
+    r.appendChild(cb); r.appendChild(el('span', null, lbl));
+    tg.appendChild(r);
+  }
+  s4.appendChild(tg);
+  p.appendChild(s4);
+
+  const s5 = el('div', 'sec');
+  s5.appendChild(el('h2', null, 'How to read this'));
+  s5.appendChild(el('div', 'note',
+    'Spread uses the <b>Rothermel</b> surface-fire model per ' + CELLM + ' m cell — reaction intensity, ' +
+    'wind and slope factors, then an elliptical spread ellipse whose eccentricity comes from the ' +
+    'effective wind. Arrival times are solved as a shortest-path problem over that anisotropic ' +
+    'speed field, so every cell carries the earliest minute the front can reach it.<br><br>' +
+    'Evacuation is a <b>time-dependent</b> shortest path: a link is only usable if you can clear it ' +
+    'before burnover, and travel time inflates with volume (BPR), assigned incrementally so ' +
+    'traffic spreads across alternatives.<br><br>' +
+    '<span class="kbd">space</span> play · <span class="kbd">← →</span> scrub · drag to pan · scroll to zoom'));
+  p.appendChild(s5);
+}
+
+function slider(key, lbl, min, max, step, fmt, on, obj) {
+  const host = obj || scenario;
+  const f = el('div', 'field');
+  const l = el('label', null, `<span>${lbl}</span><span class="val"></span>`);
+  const i = el('input'); i.type = 'range'; i.min = min; i.max = max; i.step = step; i.value = host[key];
+  const val = l.querySelector('.val');
+  val.textContent = fmt(+i.value);
+  i.oninput = () => { val.textContent = fmt(+i.value); on(+i.value); };
+  f.appendChild(l); f.appendChild(i);
+  f.dataset.key = key;
+  f._set = v => { i.value = v; val.textContent = fmt(+v); };
+  return f;
+}
+function toggleRow(lbl, get, set) {
+  const r = el('label', 'tg');
+  const cb = el('input'); cb.type = 'checkbox'; cb.checked = get();
+  cb.onchange = () => set(cb.checked);
+  r.appendChild(cb); r.appendChild(el('span', null, lbl));
+  r._set = v => { cb.checked = v; };
+  return r;
+}
+
+function dragDial(dial) {
+  const set = ev => {
+    const r = dial.getBoundingClientRect();
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const pt = ev.touches ? ev.touches[0] : ev;
+    let a = Math.atan2(pt.clientX - cx, -(pt.clientY - cy)) / D2R;
+    if (a < 0) a += 360;
+    scenario.windFrom = Math.round(a); liveWeather.manualOverride=true;
+    syncWind(); queue('fire');
+  };
+  let down = false;
+  dial.addEventListener('pointerdown', e => { down = true; dial.setPointerCapture(e.pointerId); set(e); });
+  dial.addEventListener('pointermove', e => { if (down) set(e); });
+  dial.addEventListener('pointerup', e => { down = false; try { dial.releasePointerCapture(e.pointerId); } catch (_) {} });
+}
+const COMPASS = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+function syncWind() {
+  const n = $('#needle');
+  if (n) n.style.transform = `rotate(${scenario.windFrom}deg)`;
+  const ro = $('#windReadout');
+  if (ro) ro.textContent = `${String(scenario.windFrom).padStart(3, '0')}° ${COMPASS[Math.round(scenario.windFrom / 22.5) % 16]}`;
+}
+
+function applyPreset(k, quiet) {
+  const v = PRESETS[k];
+  Object.assign(scenario, { windSpeed: v.windSpeed, windFrom: v.windFrom, moisture: v.moisture, rh: v.rh, temp: v.temp, spotting: v.spotting }); liveWeather.manualOverride=true;
+  if (quiet) { buildLeft(); syncWind(); markPreset(k); return; }
+  buildLeft(); syncWind(); markPreset(k); queue('scenario');
+}
+function markPreset(k) {
+  document.querySelectorAll('.chip[data-k]').forEach(c => c.classList.toggle('on', c.dataset.k === k));
+}
+
+/* =========================================================== right panel  */
+function buildRight() {
+  const p = $('#rightpanel');
+  p.innerHTML = '';
+  const z = el('div', 'sec');
+  z.appendChild(el('h2', null, 'Evacuation zones <span class="hint" id="zoneHint"></span>'));
+  z.appendChild(el('div', null, '<div id="zoneList"></div>'));
+  p.appendChild(z);
+
+  const lo = el('div', 'sec');
+  lo.appendChild(el('h2', null, 'Corridor load <span class="hint">peak flow / capacity</span>'));
+  lo.appendChild(el('div', null, '<div id="loadList"></div>'));
+  lo.appendChild(el('h2', null, 'Shelters <span class="hint">assigned / capacity</span>'));
+  lo.appendChild(el('div', null, '<div id="shelterList"></div>'));
+  p.appendChild(lo);
+
+  const c = el('div', 'sec');
+  c.appendChild(el('h2', null, 'Timelines'));
+  c.appendChild(chartShell('chPop', 'People at a shelter', 'cumulative, of ' , 'var(--series-1)'));
+  c.appendChild(chartShell('chFire', 'Burned area', 'cumulative hectares', 'var(--series-2)'));
+  p.appendChild(c);
+
+  const n = el('div', 'sec');
+  n.appendChild(el('h2', null, 'Model &amp; assumptions'));
+  n.appendChild(el('div', 'note', modelNotes()));
+  p.appendChild(n);
+}
+function chartShell(id, title, sub, col) {
+  const w = el('div', 'chart');
+  w.innerHTML = `<div class="ttl">${title}</div><div class="sub" id="${id}sub">${sub}</div>
+    <svg id="${id}" viewBox="0 0 260 92" preserveAspectRatio="none" style="height:92px"></svg>
+    <div style="display:flex;justify-content:flex-end;margin-top:2px">
+      <button class="linkbtn" data-tv="${id}">table view</button></div>
+    <div class="tvwrap" id="${id}tv"></div>`;
+  w.dataset.col = col;
+  setTimeout(() => {
+    const b = w.querySelector('[data-tv]');
+    b.onclick = () => {
+      const t = $('#' + id + 'tv');
+      t.classList.toggle('on');
+      b.textContent = t.classList.contains('on') ? 'hide table' : 'table view';
+    };
+  }, 0);
+  return w;
+}
+function modelNotes() {
+  return 'Rothermel (1972) surface spread, Anderson (1982) fuel models 1/2/4/5/8/10, ' +
+    'Anderson (1983) length-to-breadth ratio, Byram fireline intensity and flame length. ' +
+    'Fuel moisture is adjusted per cell for aspect, canopy and elevation. ' +
+    'Traffic uses the BPR volume-delay function (α 0.15, β 4) with incremental assignment ' +
+    'in ' + evac.increments + ' loading steps.<br><br>' +
+    '<b>Geographic Stage 2.</b> The grid is anchored to WGS84 and can load measured elevation from AWS Terrain Tiles. ' +
+    'Fuel classes are inferred from OpenStreetMap land-use/natural polygons; untagged cells use a documented grass-shrub proxy. ' +
+    'Roads, communities, population and shelters are still generated in this stage. This remains a planning/hackathon model, not an emergency warning system.';
+}
+
+/* ------------------------------------------------------------ zone cards */
+function renderZones() {
+  const host = $('#zoneList');
+  if (!host) return;
+  host.innerHTML = '';
+  const order = evac.results.map((r, i) => i).sort((a, b) => evac.results[a].fireT - evac.results[b].fireT);
+  for (const i of order) {
+    const R = evac.results[i];
+    const col = tierColor(R.tier.css);
+    const card = el('div', 'zone' + (i === selectedComm ? ' sel' : ''));
+    card.style.borderLeftColor = col;
+    const eta = R.fireT === INF ? '24 h+' : fmtDur(R.fireT);
+    const clr = R.clearance >= 0 ? fmtDur(R.clearance) : 'no route';
+    const pctSafe = R.pop > 0 ? R.safePop / R.pop : 0;
+    const marginTxt = R.atRiskPop > 1 ? 'UNROUTABLE'
+      : (R.fireT === INF ? 'ample' : (R.margin >= 0 ? fmtDur(R.margin) + ' spare' : fmtDur(-R.margin) + ' short'));
+    const marginCol = R.atRiskPop > 1 || R.margin < 0 ? 'var(--critical)'
+      : R.margin < 45 ? 'var(--warning)' : 'var(--good)';
+    card.innerHTML =
+      `<div class="hd">
+         <span class="st" style="background:${col}22;color:${col};border:1px solid ${col}55">${R.tier.label}</span>
+         <span class="nm">${R.name}</span>
+         <span class="pop">${fmtN(R.pop)}</span>
+       </div>
+       <div class="bars">
+         <div class="bar"><span style="width:60px">fire ETA</span>
+           <div class="track"><div class="fill" style="width:${R.fireT === INF ? 100 : clamp(100 - R.fireT / 14.4, 4, 100)}%;background:${col}"></div></div>
+           <span class="num">${eta}</span></div>
+         <div class="bar"><span style="width:60px">clearance</span>
+           <div class="track"><div class="fill" style="width:${R.clearance >= 0 ? clamp(R.clearance / 6, 4, 100) : 100}%;background:${R.clearance >= 0 ? 'var(--series-1)' : 'var(--critical)'}"></div></div>
+           <span class="num">${clr}</span></div>
+         <div class="bar"><span style="width:60px">margin</span>
+           <div class="track"><div class="fill" style="width:${clamp(pctSafe * 100, 2, 100)}%;background:${marginCol}"></div></div>
+           <span class="num" style="color:${marginCol}">${marginTxt}</span></div>
+       </div>` +
+      (R.atRiskPop > 1
+        ? `<div class="warnmsg"><span>▲</span><span>${fmtN(R.atRiskPop)} people have no surviving route — every corridor burns over before they clear it.</span></div>`
+        : (R.margin < 30 && R.fireT !== INF
+          ? `<div class="warnmsg" style="color:var(--warning)"><span>▲</span><span>Only ${fmtDur(Math.max(R.margin,0))} of slack. Order this zone earlier or stage it first.</span></div>` : ''));
+    card.onclick = () => { selectedComm = selectedComm === i ? -1 : i; renderZones(); draw(); };
+    host.appendChild(card);
+  }
+  const hint = $('#zoneHint');
+  if (hint) hint.textContent = evac.staged ? 'phased order' : 'simultaneous order';
+}
+
+/* --------------------------------------------- corridor & shelter loading */
+function renderLoads() {
+  const host = $('#loadList');
+  if (host) {
+    /* Edges are just 300 m slices of longer corridors, so listing the top
+       links by v/c returns the same road five times. Merge contiguous loaded
+       slices that carry the same flow into one corridor first.            */
+    const loaded = net.edges.filter(e => e.vol > 1);
+    const seen = new Set(), groups = [];
+    for (const e of loaded) {
+      if (seen.has(e.id)) continue;
+      const g = { cls: e.cls, vol: e.vol, cap: e.cap, len: 0, burns: false, ids: [] };
+      const stack = [e];
+      while (stack.length) {
+        const cur = stack.pop();
+        if (seen.has(cur.id)) continue;
+        seen.add(cur.id);
+        g.ids.push(cur.id); g.len += cur.len;
+        g.vol = Math.max(g.vol, cur.vol);
+        if (cur.fireT !== INF) g.burns = true;
+        for (const nd of [cur.a, cur.b]) for (const link of net.adj[nd]) {
+          const nx = net.edges[link.e];
+          if (seen.has(nx.id) || nx.vol <= 1) continue;
+          if (nx.cls !== cur.cls) continue;
+          if (Math.abs(nx.vol - cur.vol) > Math.max(40, cur.vol * 0.12)) continue;
+          stack.push(nx);
+        }
+      }
+      groups.push(g);
+    }
+    groups.sort((a, b) => (b.vol / b.cap) - (a.vol / a.cap));
+    const top = groups.slice(0, 5);
+    host.innerHTML = top.length ? top.map(g => {
+      const vc = g.vol / g.cap;
+      const col = vc > 0.9 ? 'var(--serious)' : vc > 0.6 ? 'var(--warning)' : 'var(--good)';
+      return `<div style="display:flex;align-items:center;gap:7px;font-size:10.5px;color:var(--text-muted);margin-bottom:5px">
+        <span style="width:96px;color:var(--text-secondary)">${ROAD_CLASS[g.cls].name} · ${(g.len / 1000).toFixed(1)} km${g.burns ? ' <span style="color:var(--critical)" title="fire crosses this corridor">✕</span>' : ''}</span>
+        <div style="flex:1;height:4px;border-radius:3px;background:var(--axis);overflow:hidden">
+          <div style="height:100%;width:${clamp(vc * 100, 2, 100)}%;background:${col};border-radius:3px"></div></div>
+        <span style="width:44px;text-align:right;font-family:var(--mono);color:${col}">${(vc * 100).toFixed(0)}%</span>
+      </div>`;
+    }).join('') + '<div class="note">✕ marks a corridor the fire crosses at some point in the run. ' +
+      'Percentage is assigned departure flow against one-way capacity.</div>'
+      : '<div class="note">No traffic assigned.</div>';
+  }
+  const sh = $('#shelterList');
+  if (sh && evac.shelterLoad) {
+    sh.innerHTML = net.shelters.map((s, i) => {
+      const load = evac.shelterLoad[i] || 0;
+      const f = load / s.cap;
+      const col = f > 1 ? 'var(--critical)' : f > 0.85 ? 'var(--warning)' : 'var(--good)';
+      return `<div style="display:flex;align-items:center;gap:7px;font-size:10.5px;color:var(--text-muted);margin-bottom:5px">
+        <span style="width:110px;color:var(--text-secondary)" title="${esc(s.official?'Official emergency shelter tag':(s.capSource||'Planning site'))}">${esc(s.name.replace(' Shelter',''))}</span>
+        <div style="flex:1;height:4px;border-radius:3px;background:var(--axis);overflow:hidden">
+          <div style="height:100%;width:${clamp(f * 100, 2, 100)}%;background:${col};border-radius:3px"></div></div>
+        <span style="width:62px;text-align:right;font-family:var(--mono);color:${col}">${fmtN(load)}</span>
+      </div>`;
+    }).join('');
+  }
+}
+
+/* ---------------------------------------------------------------- tiles  */
+function renderTiles() {
+  const t = simT;
+  const burned = burnedHaAt(t);
+  const safe = safeAt(t);
+  const pct = evac.totalPop ? safe / evac.totalPop * 100 : 0;
+  const rc = closedRoadKm(t);
+  const impacted = evac.results.filter(r => r.fireT <= t).length;
+  const exposed = exposedAt(t);
+  const tiles = [
+    { k: 'Burned area', v: fmtHa(burned), s: 'ha', cls: '' },
+    { k: 'At a shelter', v: pct.toFixed(0) + '%', s: fmtN(safe), cls: pct > 85 ? 'ok' : pct > 40 ? 'warn' : '' },
+    { k: 'Still exposed', v: fmtN(exposed), s: 'people', cls: exposed > 0 ? 'alert' : 'ok' },
+    { k: 'Roads closed', v: rc.closed.toFixed(1), s: '/ ' + rc.total.toFixed(0) + ' km', cls: rc.closed > 0 ? 'warn' : '' },
+    { k: 'Communities hit', v: impacted + '', s: '/ ' + evac.results.length, cls: impacted ? 'alert' : '' },
+    { k: 'Unroutable', v: fmtN(evac.atRiskPop), s: 'people', cls: evac.atRiskPop > 1 ? 'alert' : 'ok' }
+  ];
+  $('#tiles').innerHTML = tiles.map(x =>
+    `<div class="tile ${x.cls}"><div class="k">${x.k}</div><div class="v">${x.v}<small>${x.s}</small></div></div>`).join('');
+}
+
+/* ---------------------------------------------------------------- charts */
+function lineChart(id, series, opts) {
+  const svg = document.getElementById(id);
+  if (!svg) return;
+  const W = 260, H = 92, PL = 30, PR = 6, PT = 8, PB = 16;
+  const maxY = Math.max(opts.maxY || 0, ...series.map(v => v)) || 1;
+  const n = series.length;
+  const X = i => PL + (i / (n - 1)) * (W - PL - PR);
+  const Y = v => H - PB - (v / maxY) * (H - PT - PB);
+  let dLine = '', dArea = '';
+  for (let i = 0; i < n; i++) {
+    dLine += (i ? 'L' : 'M') + X(i).toFixed(2) + ' ' + Y(series[i]).toFixed(2) + ' ';
+  }
+  dArea = dLine + `L${X(n - 1).toFixed(2)} ${H - PB} L${X(0).toFixed(2)} ${H - PB} Z`;
+  const gridY = [0, 0.5, 1].map(f => {
+    const y = Y(maxY * f);
+    return `<line x1="${PL}" y1="${y}" x2="${W - PR}" y2="${y}" stroke="var(--grid)" stroke-width="0.6"/>` +
+      `<text x="${PL - 4}" y="${y + 3}" fill="var(--text-muted)" font-size="7" text-anchor="end">${opts.fmtY(maxY * f)}</text>`;
+  }).join('');
+  const ticks = [0, 6, 12, 18, 24].map(h => {
+    const i = clamp(Math.round(h * 60 / opts.binMin), 0, n - 1);
+    return `<text x="${X(i)}" y="${H - 4}" fill="var(--text-muted)" font-size="7" text-anchor="middle">${h}h</text>`;
+  }).join('');
+  const iNow = clamp(Math.round(simT / opts.binMin), 0, n - 1);
+  const xNow = X(iNow), yNow = Y(series[iNow]);
+  svg.innerHTML = `
+    <defs><linearGradient id="${id}g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="${opts.col}" stop-opacity="0.34"/>
+      <stop offset="100%" stop-color="${opts.col}" stop-opacity="0.02"/>
+    </linearGradient></defs>
+    ${gridY}
+    <path d="${dArea}" fill="url(#${id}g)"/>
+    <path d="${dLine}" fill="none" stroke="${opts.col}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+    <line x1="${xNow}" y1="${PT}" x2="${xNow}" y2="${H - PB}" stroke="var(--text-muted)" stroke-width="0.8" stroke-dasharray="2 2"/>
+    <circle cx="${xNow}" cy="${yNow}" r="3.2" fill="${opts.col}" stroke="var(--surface-1)" stroke-width="1.6"/>
+    <text x="${clamp(xNow + 5, PL, W - 40)}" y="${clamp(yNow - 5, 10, H - PB - 2)}" fill="var(--text-primary)" font-size="8" font-weight="600">${opts.fmtY(series[iNow])}</text>
+    ${ticks}
+    <line x1="${PL}" y1="${H - PB}" x2="${W - PR}" y2="${H - PB}" stroke="var(--axis)" stroke-width="0.8"/>`;
+  // hover crosshair
+  svg.onpointermove = ev => {
+    const r = svg.getBoundingClientRect();
+    const fx = (ev.clientX - r.left) / r.width * W;
+    const i = clamp(Math.round((fx - PL) / (W - PL - PR) * (n - 1)), 0, n - 1);
+    showTip(ev.clientX, ev.clientY, `<div class="t">${opts.title}</div>
+      <div class="r"><span>time</span><b>${fmtHM(i * opts.binMin)}</b></div>
+      <div class="r"><span>${opts.unit}</span><b>${opts.fmtY(series[i])}</b></div>`);
+  };
+  svg.onpointerleave = hideTip;
+  // table view
+  const tv = document.getElementById(id + 'tv');
+  if (tv) {
+    let rows = '';
+    for (let h = 0; h <= 24; h++) {
+      const i = clamp(Math.round(h * 60 / opts.binMin), 0, n - 1);
+      rows += `<tr><td>${h}h</td><td style="text-align:right">${opts.fmtY(series[i])}</td></tr>`;
+    }
+    tv.innerHTML = `<table class="tv"><thead><tr><th>Time</th><th>${opts.unit}</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+}
+
+function renderCharts() {
+  const nb = Math.floor(HORIZON / evac.binMin) + 1;
+  const pop = Array.from({ length: nb }, (_, i) => evac.cum[i] || 0);
+  lineChart('chPop', pop, {
+    col: '#3987e5', binMin: evac.binMin, maxY: evac.totalPop,
+    fmtY: v => fmtN(v), title: 'People at a shelter', unit: 'people'
+  });
+  const sub = $('#chPopsub');
+  if (sub) sub.textContent = `cumulative, of ${fmtN(evac.totalPop)} residents`;
+  const nb2 = fire.burnedHa.length;
+  const bh = Array.from({ length: nb2 }, (_, i) => fire.burnedHa[i]);
+  lineChart('chFire', bh, {
+    col: '#d95926', binMin: fire.binMin,
+    fmtY: v => fmtHa(v), title: 'Burned area', unit: 'hectares'
+  });
+}
+
+/* -------------------------------------------------------------- timeline */
+function buildTimeline() {
+  const s = $('#tSlider');
+  s.max = HORIZON;
+  s.oninput = () => { simT = +s.value; playing = false; setPlayIcon(); frameUpdate(); };
+  $('#play').onclick = () => { playing = !playing; if (simT >= HORIZON) simT = 0; setPlayIcon(); };
+  const spd = $('#spd');
+  spd.innerHTML = '';
+  [4, 12, 40, 120].forEach(v => {
+    const b = el('button', 'chip' + (v === speed ? ' on' : ''), v + '×');
+    b.onclick = () => { speed = v; document.querySelectorAll('#spd .chip').forEach(c => c.classList.remove('on')); b.classList.add('on'); };
+    spd.appendChild(b);
+  });
+  const marks = $('#tlmarks');
+  marks.innerHTML = [0, 6, 12, 18, 24].map(h =>
+    `<span class="m" style="left:${h / 24 * 100}%">${h}h</span>`).join('');
+}
+function renderRiskTrack() {
+  const t = $('#tlrisk');
+  t.innerHTML = evac.results.filter(r => r.fireT !== INF).map(r =>
+    `<i style="left:${clamp(r.fireT / HORIZON * 100, 0, 99.6)}%;background:${tierColor(r.tier.css)}" title="${r.name}"></i>`).join('');
+}
+function setPlayIcon() {
+  $('#playIcon').innerHTML = playing
+    ? '<rect x="3" y="2" width="3" height="9" fill="currentColor"/><rect x="8" y="2" width="3" height="9" fill="currentColor"/>'
+    : '<path d="M3 1.5 L11 6.5 L3 11.5 Z" fill="currentColor"/>';
+}
+
+/* --------------------------------------------------------------- tooltip */
+const tipEl = $('#tip');
+function showTip(cx, cy, html) {
+  tipEl.innerHTML = html;
+  tipEl.style.display = 'block';
+  const wrap = document.getElementById('mapwrap').getBoundingClientRect();
+  let x = cx - wrap.left + 14, y = cy - wrap.top + 14;
+  if (x + tipEl.offsetWidth > wrap.width - 6) x = cx - wrap.left - tipEl.offsetWidth - 12;
+  if (y + tipEl.offsetHeight > wrap.height - 6) y = cy - wrap.top - tipEl.offsetHeight - 12;
+  tipEl.style.left = Math.max(4, x) + 'px';
+  tipEl.style.top = Math.max(4, y) + 'px';
+}
+function hideTip() { tipEl.style.display = 'none'; }
+
+
+/* ---------------------------------------------------- real-world location */
+let geoMap = null, geoBox = null, geoMarker = null, geoCandidate = null;
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function setGeoCandidate(lat, lon, name) {
+  lat = clamp(+lat, -85, 85); lon = ((+lon + 540) % 360) - 180;
+  geoCandidate = { lat, lon, name: name || `${lat.toFixed(5)}, ${lon.toFixed(5)}` };
+  const ro = $('#geoReadout'); if (ro) ro.textContent = `${geoCandidate.name} · ${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+  if (geoMap && window.L) {
+    if (!geoMarker) geoMarker = L.marker([lat, lon]).addTo(geoMap); else geoMarker.setLatLng([lat, lon]);
+    const half = DOMAIN_M / 2, dLat = half / 111320, dLon = half / Math.max(1000, metersPerDegLon(lat));
+    const b = [[lat-dLat, lon-dLon],[lat+dLat, lon+dLon]];
+    if (!geoBox) geoBox = L.rectangle(b, { color:'#ff9d2e', weight:2, fillOpacity:.08 }).addTo(geoMap); else geoBox.setBounds(b);
+  }
+}
+function openGeoPicker(lat=scenario.centerLat, lon=scenario.centerLon, name=scenario.locationName) {
+  const modal = $('#geoModal'); modal.classList.add('on'); modal.setAttribute('aria-hidden','false');
+  setGeoCandidate(lat, lon, name);
+  if (!window.L) { $('#geoReadout').textContent = 'Interactive map library could not load. Search or browser location still works.'; return; }
+  if (!geoMap) {
+    geoMap = L.map('geoMap', { zoomControl:true }).setView([lat,lon], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom:19, attribution:'&copy; OpenStreetMap contributors'
+    }).addTo(geoMap);
+    geoMap.on('click', e => setGeoCandidate(e.latlng.lat, e.latlng.lng, 'Map selection'));
+  }
+  geoMap.setView([lat,lon], 12);
+  setTimeout(() => geoMap.invalidateSize(), 60);
+}
+function closeGeoPicker() { $('#geoModal').classList.remove('on'); $('#geoModal').setAttribute('aria-hidden','true'); }
+function applyGeoCandidate(useAsIgnition=false) {
+  if (!geoCandidate) return;
+  if (useAsIgnition) {
+    const p = latLonToCell(geoCandidate.lat, geoCandidate.lon);
+    if (p.x < 0 || p.y < 0 || p.x >= N || p.y >= N) {
+      alert('That ignition point is outside the current 7.68 km simulation area. Use this area first, then place the ignition.'); return;
+    }
+    const x=clamp(Math.round(p.x),0,N-1), y=clamp(Math.round(p.y),0,N-1);
+    if (!FUELS[land.fuel[idx(x,y)]].burn) { alert('That cell is non-burnable in the current fuel layer. Choose a nearby point.'); return; }
+    scenario.ignition=[{x,y}]; scenario.ignitionSource='Manual map-picker ignition'; scenario.ignitionSourceUrl=''; scenario.ignitionObservedAt=''; closeGeoPicker(); queue('fire'); return;
+  }
+  scenario.centerLat=geoCandidate.lat; scenario.centerLon=geoCandidate.lon; scenario.locationName=geoCandidate.name;
+  scenario.seed=seedFromGeo(scenario.centerLat, scenario.centerLon);
+  invalidateRealLandscape(); invalidateRealRoads(); invalidateRealPlaces(); invalidateLiveWeather(); invalidateRealFires(); invalidateRealHotspots();
+  // Keep the same relative ignition position while rebuilding the local domain.
+  dirtyLandscape=true; closeGeoPicker(); buildLeft(); syncWind(); refreshRealData();
+}
+function landscapeStatusHtml() {
+  if (realLandscape.loading || realRoads.loading || realPlaces.loading || liveWeather.loading || realFires.loading || realHotspots.loading) return '<b>Stage 8:</b> loading geographic datasets, weather and fire observations…';
+  const landOK=realLandscape.ready && realLandscape.key===realLandscapeKey();
+  const roadOK=realRoads.ready && realRoads.key===roadNetworkKey();
+  const placeOK=realPlaces.ready && realPlaces.key===placeDataKey();
+  const weatherOK=liveWeather.ready && liveWeather.key===weatherKey();
+  const firesOK=realFires.ready && realFires.key===fireFeedKey();
+  const hotspotsOK=realHotspots.ready && realHotspots.key===hotspotFeedKey();
+  if (landOK || roadOK || placeOK || weatherOK || firesOK || hotspotsOK) {
+    const cov=Math.round(realLandscape.osmCoverage*100);
+    const landTxt=landOK ? `Elevation: ${esc(realLandscape.elevationSource)}. Fuel: ${esc(realLandscape.fuelSource)}${realLandscape.fuelSource==='OpenStreetMap proxy'?` (${cov}% tagged)`:''}.` : 'Terrain: synthetic fallback.';
+    const roadTxt=roadOK ? `Roads: OpenStreetMap (${realRoads.edges.toLocaleString()} links, ${realRoads.km.toFixed(1)} km).` : 'Roads: synthetic fallback.';
+    const placeTxt=placeOK ? `Communities: ${realPlaces.communities} mapped. Population: ${fmtN(realPlaces.mappedPopulation)} tagged + ${fmtN(realPlaces.estimatedPopulation)} estimated. Evacuation sites: ${realPlaces.sites} mapped (${realPlaces.officialSites} explicitly tagged emergency shelters).` : 'Communities/sites: synthetic fallback.';
+    const weatherTxt=weatherOK ? `Weather: Open-Meteo forecast snapshot (${esc(liveWeather.hourly[liveWeather.selected]?.timeLabel||'selected hour')}).` : 'Weather: manual fallback.';
+    const fireTxt=firesOK ? `Incidents: NASA EONET (${realFires.events.length} open event${realFires.events.length===1?'':'s'} within ${realFires.radiusKm} km).` : 'Incidents: manual fallback.';
+    const hotspotTxt=hotspotsOK ? ` Hotspots: NASA FIRMS (${realHotspots.hotspots.length} ${esc(realHotspots.source)} thermal detections).` : (realHotspots.configured===false?' Hotspots: FIRMS key not configured.':' Hotspots: FIRMS fallback.');
+    const warns=[realLandscape.lastError,realRoads.lastError,realPlaces.lastError,liveWeather.lastError,realFires.lastError,realHotspots.lastError].filter(Boolean).map(x=>`<br><span style="color:var(--warning)">${esc(x)}</span>`).join('');
+    return `<b>Stage 8 active.</b> ${landTxt} ${roadTxt} ${placeTxt} ${weatherTxt} ${fireTxt}${hotspotTxt}${warns}<br><b>FIRMS points are satellite thermal anomalies, not automatic confirmation of wildfire. EONET supplies incident metadata. Weather is a forecast/model snapshot; 10 m wind is a proxy for 20-ft wind. Candidate facilities and planning population estimates require verification. Not for emergency decisions.</b>`;
+  }
+  return '<b>Stage 8 ready:</b> real terrain, OSM context, weather, EONET incidents and optional NASA FIRMS satellite hotspots through the backend. <b>Not for emergency decisions.</b>';
+}
+function updateLandscapeStatus(msg) {
+  const e=$('#dataStatus'); if(e) e.innerHTML=msg?`<b>Stage 8:</b> ${esc(msg)}`:landscapeStatusHtml();
+}
+async function refreshRealData(centeredOnIncident=false) {
+  const busy=$('#busy'); if(busy) busy.classList.add('on'); updateLandscapeStatus('Loading geographic data and weather…');
+  let landOK=false, roadsOK=false, placesOK=false, weatherOK=false, firesOK=false, hotspotsOK=false;
+  try {
+    try { await loadRealLandscape(m=>updateLandscapeStatus(m)); landOK=true; }
+    catch(e) { console.warn('Real landscape load failed',e); realLandscape.ready=false; buildLandscape(scenario.seed); }
+
+    buildNetwork(scenario.seed);
+    try { await loadRealRoadNetwork(m=>updateLandscapeStatus(m)); roadsOK=true; }
+    catch(e) { console.warn('Real road load failed',e); realRoads.lastError=e.message||String(e); }
+    try { await loadRealCommunityData(m=>updateLandscapeStatus(m)); placesOK=true; }
+    catch(e) { console.warn('Real community/site load failed',e); realPlaces.lastError=e.message||String(e); }
+    try { updateLandscapeStatus('Loading live weather…'); await fetchLiveWeather(true); weatherOK=true; }
+    catch(e) { console.warn('Live weather load failed',e); liveWeather.lastError=e.message||String(e); }
+    try { updateLandscapeStatus('Loading nearby NASA wildfire incidents…'); await fetchWildfireIncidents(); firesOK=true; }
+    catch(e) { console.warn('NASA wildfire feed load failed',e); realFires.lastError=e.message||String(e); }
+    try { updateLandscapeStatus('Loading NASA FIRMS satellite hotspots…'); hotspotsOK=await fetchFirmsHotspots(); }
+    catch(e) { console.warn('NASA FIRMS hotspot load failed',e); realHotspots.lastError=e.message||String(e); }
+
+    dirtyLandscape=false; computeSpreadField(); if(!centeredOnIncident) placeDefaultIgnition(); else { const p=latLonToCell(scenario.centerLat,scenario.centerLon),x=clamp(Math.round(p.x),0,N-1),y=clamp(Math.round(p.y),0,N-1); scenario.ignition=[{x,y}]; } computeArrival(); stampFireTimes(); planEvacuation();
+    paintTerrain(); paintIso(); buildLeft(); syncWind(); fullUpdate(); updateLandscapeStatus();
+    if(!landOK||!roadsOK||!placesOK||!weatherOK||!firesOK) {
+      const miss=[!landOK?'terrain/land-cover':null,!roadsOK?'roads':null,!placesOK?'communities/evacuation sites':null,!weatherOK?'weather':null,!firesOK?'wildfire incidents':null].filter(Boolean).join(', ');
+      alert(`Some real-world data (${miss}) could not be loaded, so Ember kept a fallback for that layer. The rest of the scenario is still usable.`);
+    }
+  } finally { if(busy) busy.classList.remove('on'); }
+}
+
+async function searchLocation(q) {
+  q=(q||'').trim(); if (!q) return;
+  // Accept direct "lat, lon" input without an API call.
+  const m=q.match(/^\s*(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)\s*$/);
+  if (m) { openGeoPicker(+m[1], +m[2], 'Coordinates'); return; }
+  try {
+    const url='/api/geocode?q='+encodeURIComponent(q);
+    const r=await fetch(url, { headers:{'Accept':'application/json'} });
+    if(!r.ok) throw new Error('geocoder '+r.status);
+    const a=await r.json(); if(!a.length) { alert('Location not found. Try a city plus state/country, or enter latitude, longitude.'); return; }
+    openGeoPicker(+a[0].lat,+a[0].lon,a[0].display_name||q);
+  } catch(e) { alert('Location search is unavailable right now. You can enter coordinates directly, for example 26.4499, 80.3319.'); }
+}
+function useBrowserLocation() {
+  if(!navigator.geolocation) { alert('This browser does not provide location access. Enter coordinates or search a place instead.'); return; }
+  navigator.geolocation.getCurrentPosition(p => openGeoPicker(p.coords.latitude,p.coords.longitude,'My location'),
+    () => alert('Location permission was not available. Search a place or enter coordinates instead.'), {enableHighAccuracy:true,timeout:8000});
+}
+function wireGeoPicker() {
+  $('#geoClose').onclick=closeGeoPicker;
+  $('#geoApply').onclick=()=>applyGeoCandidate(false);
+  $('#geoSetIgnition').onclick=()=>applyGeoCandidate(true);
+  $('#geoModal').addEventListener('click',e=>{ if(e.target.id==='geoModal') closeGeoPicker(); });
+}
+
+/* ---------------------------------------------------------- map controls */
+function wireMap() {
+  let dragging = false, moved = 0, lx = 0, ly = 0;
+  cv.addEventListener('pointerdown', e => {
+    dragging = true; moved = 0; lx = e.clientX; ly = e.clientY;
+    cv.setPointerCapture(e.pointerId);
+  });
+  cv.addEventListener('pointerup', e => {
+    dragging = false;
+    try { cv.releasePointerCapture(e.pointerId); } catch (_) {}
+    if (moved > 4) return;
+    const r = cv.getBoundingClientRect();
+    const p = inv(e.clientX - r.left, e.clientY - r.top);
+    if (igniteArmed) {
+      const x = clamp(Math.round(p.x), 0, N - 1), y = clamp(Math.round(p.y), 0, N - 1);
+      if (FUELS[land.fuel[idx(x, y)]].burn) {
+        scenario.ignition = [{ x, y }];
+        scenario.ignitionSource='Manual simulation-map ignition'; scenario.ignitionSourceUrl=''; scenario.ignitionObservedAt='';
+        igniteArmed = false; buildLeft(); syncWind();
+        queue('fire');
+      }
+      return;
+    }
+    // select nearest community
+    let best = -1, bd = 9;
+    net.comms.forEach((c, i) => { const d = Math.hypot(c.x - p.x, c.y - p.y); if (d < bd) { bd = d; best = i; } });
+    selectedComm = best;
+    renderZones(); draw();
+  });
+  cv.addEventListener('pointermove', e => {
+    if (dragging) {
+      const dx = e.clientX - lx, dy = e.clientY - ly;
+      moved += Math.abs(dx) + Math.abs(dy);
+      view.panX += dx; view.panY += dy; lx = e.clientX; ly = e.clientY;
+      draw(); return;
+    }
+    const r = cv.getBoundingClientRect();
+    const p = inv(e.clientX - r.left, e.clientY - r.top);
+    const x = Math.round(p.x), y = Math.round(p.y);
+    if (x < 0 || y < 0 || x >= N || y >= N) { hideTip(); return; }
+    hoverCell = idx(x, y);
+    showTip(e.clientX, e.clientY, cellTip(hoverCell, p));
+  });
+  cv.addEventListener('pointerleave', hideTip);
+  cv.addEventListener('wheel', e => {
+    e.preventDefault();
+    const r = cv.getBoundingClientRect();
+    const px = e.clientX - r.left, py = e.clientY - r.top;
+    const before = inv(px, py);
+    view.zoom = clamp(view.zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15), 1, 8);
+    fitView();
+    const after = inv(px, py);
+    view.panX += (after.x - before.x) * view.scale;
+    view.panY += (after.y - before.y) * view.scale;
+    draw();
+  }, { passive: false });
+}
+
+function cellTip(i, p) {
+  const f = FUELS[land.fuel[i]];
+  const a = fire.arrival[i];
+  const flame = 0.0775 * Math.pow(Math.max(fire.fli[i], 0), 0.46);
+  let extra = '';
+  let bestC = null, bd = 6;
+  net.comms.forEach((c, k) => { const d = Math.hypot(c.x - p.x, c.y - p.y); if (d < bd) { bd = d; bestC = k; } });
+  if (bestC !== null) {
+    const R = evac.results[bestC];
+    extra = `<div class="r" style="margin-top:4px"><span>${R.name}</span><b>${fmtN(R.pop)}</b></div>
+             <div class="r"><span>zone</span><b style="color:${tierColor(R.tier.css)}">${R.tier.label}</b></div>
+             <div class="r"><span>clearance</span><b>${R.clearance >= 0 ? fmtDur(R.clearance) : 'no route'}</b></div>`;
+  }
+  const g = cellToLatLon(p.x, p.y);
+  return `<div class="t">${f.name}</div>
+    <div class="r"><span>coordinate</span><b>${g.lat.toFixed(5)}, ${g.lon.toFixed(5)}</b></div>
+    <div class="r"><span>elevation</span><b>${Math.round(land.elev[i])} m</b></div>
+    <div class="r"><span>slope</span><b>${(Math.atan(land.slope[i]) / D2R).toFixed(0)}°</b></div>
+    <div class="r"><span>head ROS</span><b>${fire.rHead[i] > 0 ? fire.rHead[i].toFixed(1) + ' m/min' : '—'}</b></div>
+    <div class="r"><span>flame length</span><b>${fire.rHead[i] > 0 ? flame.toFixed(1) + ' m' : '—'}</b></div>
+    <div class="r"><span>fire arrives</span><b>${a === INF ? 'not in 24 h' : fmtDur(a)}</b></div>${extra}`;
+}
+
+/* ------------------------------------------------------------- scalebar  */
+function renderScale() {
+  const targetPx = 110;
+  const mPerPx = CELLM / view.scale;
+  const raw = targetPx * mPerPx;
+  const steps = [100, 200, 500, 1000, 2000, 5000];
+  const m = steps.reduce((a, b) => Math.abs(b - raw) < Math.abs(a - raw) ? b : a);
+  $('#sbBar').style.width = (m / mPerPx) + 'px';
+  $('#sbTxt').textContent = m >= 1000 ? (m / 1000) + ' km' : m + ' m';
+}
+
+/* --------------------------------------------------------------- legend  */
+let legendOpen = true;
+function renderLegend() {
+  const host = $('#legend');
+  host.style.pointerEvents = 'auto';
+  if (!legendOpen) {
+    host.innerHTML = '<button class="linkbtn" id="legToggle" style="font-size:10.5px">show legend</button>';
+    $('#legToggle').onclick = () => { legendOpen = true; renderLegend(); };
+    return;
+  }
+  const rows = [];
+  rows.push('<div style="display:flex;align-items:center"><h3 style="margin:0">Fire</h3>' +
+    '<button class="linkbtn" id="legToggle" style="margin-left:auto;font-size:10px">hide</button></div>');
+  rows.push('<div class="ramp" style="background:linear-gradient(90deg,#ffe89a,#ff8e14,#af3e1a,#3e302c)"></div>');
+  rows.push('<div class="rampL"><span>front</span><span>1 h</span><span>scar</span></div>');
+  rows.push('<h3 style="margin-top:8px">Zones</h3>');
+  for (const z of TIERS) rows.push(`<div class="row"><span class="sw" style="background:${tierColor(z.css)}"></span>${z.label} · ${z.max === INF ? '24 h+' : '< ' + fmtDur(z.max)}</div>`);
+  rows.push('<h3 style="margin-top:8px">Roads</h3>');
+  rows.push('<div class="row"><span class="sw" style="background:#d8d5cc"></span>open</div>');
+  rows.push('<div class="row"><span class="sw" style="background:#fab219"></span>&gt; 60% of capacity</div>');
+  rows.push('<div class="row"><span class="sw" style="background:#ec835a"></span>at capacity</div>');
+  rows.push('<div class="row"><span class="sw" style="background:repeating-linear-gradient(90deg,#d03b3b 0 5px,transparent 5px 8px)"></span>fire &lt; 30 min away</div>');
+  rows.push('<div class="row"><span class="sw" style="background:repeating-linear-gradient(90deg,#7a2a2a 0 3px,transparent 3px 6px)"></span>burned over</div>');
+  if (layers.fuel) {
+    rows.push('<h3 style="margin-top:8px">Fuel</h3>');
+    for (const f of FUELS) if (f.id >= 4 || f.id === F_WATER)
+      rows.push(`<div class="row"><span class="sw" style="background:rgb(${f.col.join(',')})"></span>${f.name.replace(/ \(.*\)/, '')}</div>`);
+  }
+  host.innerHTML = rows.join('');
+  $('#legToggle').onclick = () => { legendOpen = false; renderLegend(); };
+}
+
+/* ------------------------------------------------------- compute pipeline */
+let pending = null, busyTimer = null;
+function queue(kind) {
+  if (pending) clearTimeout(pending);
+  document.getElementById('busy').classList.add('on');
+  pending = setTimeout(() => {
+    pending = null;
+    const t0 = performance.now();
+    if (kind === 'all') { recompute({ landscape: true }); paintTerrain(); }
+    else if (kind === 'scenario') { recompute({ reIgnite: true }); }
+    else if (kind === 'fire') { recompute({}); }
+    else { planEvacuation(); }
+    paintIso();
+    fullUpdate();
+    document.getElementById('busy').classList.remove('on');
+    const ms = performance.now() - t0;
+    const sn = $('#seedNote');
+    if (sn) sn.innerHTML = `<b>${esc(scenario.locationName)}</b> · ${scenario.centerLat.toFixed(4)}, ${scenario.centerLon.toFixed(4)}<br>seed <code>${scenario.seed}</code> · ${net.comms.length} communities · ` +
+      `${net.edges.length} road links · solved in ${ms.toFixed(0)} ms`;
+  }, 30);
+}
+
+function fullUpdate() {
+  renderZones(); renderLoads(); renderCharts(); renderRiskTrack(); renderLegend();
+  frameUpdate();
+  const d = $('#dangerNote');
+  if (d) {
+    // the single hottest cell on a 57 600-cell map is an outlier; report the
+    // 99th percentile of burnable ground, which is what crews would actually see
+    const burnable = Array.from(fire.rHead).filter(v => v > 0).sort((a, b) => a - b);
+    const pct = f => burnable.length ? burnable[Math.floor(f * (burnable.length - 1))] : 0;
+    const maxR = pct(0.99);
+    const fliS = Array.from(fire.fli).filter(v => v > 0).sort((a, b) => a - b);
+    const fl = 0.0775 * Math.pow(fliS.length ? fliS[Math.floor(0.99 * (fliS.length - 1))] : 0, 0.46);
+    const sev = maxR > 60 ? ['EXTREME', 'var(--critical)'] : maxR > 25 ? ['VERY HIGH', 'var(--serious)']
+      : maxR > 10 ? ['HIGH', 'var(--warning)'] : ['MODERATE', 'var(--good)'];
+    d.innerHTML = `Head fire (99th pct): <b style="color:${sev[1]}">${maxR.toFixed(0)} m/min</b> · ` +
+      `flame length up to <b>${fl.toFixed(1)} m</b> · danger <b style="color:${sev[1]}">${sev[0]}</b>. ` +
+      (fl > 3.5 ? 'Direct attack by hand crews is not possible.' : 'Direct attack may still be feasible.');
+  }
+}
+function frameUpdate() {
+  renderTiles();
+  $('#clockBig').textContent = fmtHM(simT);
+  $('#tSlider').value = simT;
+  draw();
+  renderScale();
+  // keep the "now" marker on the charts live without rebuilding tables
+  renderCharts();
+}
+
+/* ------------------------------------------------------------------ loop */
+function tick(ts) {
+  const dt = lastFrame ? (ts - lastFrame) / 1000 : 0;
+  lastFrame = ts;
+  dashPhase = (dashPhase + dt * 26) % 14;
+  if (playing) {
+    simT += dt * speed;
+    if (simT >= HORIZON) { simT = HORIZON; playing = false; setPlayIcon(); }
+    frameUpdate();
+  } else if (layers.routes) {
+    draw();
+  }
+  requestAnimationFrame(tick);
+}
+
+/* ------------------------------------------------------------------ boot */
+function boot() {
+  applyPreset('summer', true);
+  buildLeft();
+  buildRight();
+  buildTimeline();
+  wireMap();
+  wireGeoPicker();
+  syncWind();
+  markPreset('summer');
+  dirtyLandscape = true;
+  recompute({ landscape: true });
+  paintTerrain(); paintIso();
+  simT = 210;
+  fullUpdate();
+  setPlayIcon();
+  const sn = $('#seedNote');
+  if (sn) sn.innerHTML = `<b>${esc(scenario.locationName)}</b> · ${scenario.centerLat.toFixed(4)}, ${scenario.centerLon.toFixed(4)}<br>seed <code>${scenario.seed}</code> · ${net.comms.length} communities · ${net.edges.length} road links`;
+  requestAnimationFrame(tick);
+  // Stage 9: restore the server-side session and external context once at startup.
+  refreshAuth().then(()=>buildLeft());
+  Promise.allSettled([fetchLiveWeather(false), fetchWildfireIncidents(), fetchFirmsHotspots()]).then(()=>{ buildLeft(); syncWind(); updateLandscapeStatus(); });
+}
+window.addEventListener('resize', () => { fitView(); draw(); renderScale(); });
+window.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' && e.target.type !== 'range') return;
+  if (e.code === 'Space') { e.preventDefault(); playing = !playing; setPlayIcon(); }
+  if (e.code === 'ArrowRight') { simT = clamp(simT + (e.shiftKey ? 60 : 10), 0, HORIZON); playing = false; setPlayIcon(); frameUpdate(); }
+  if (e.code === 'ArrowLeft') { simT = clamp(simT - (e.shiftKey ? 60 : 10), 0, HORIZON); playing = false; setPlayIcon(); frameUpdate(); }
+});
+boot();
+</script>
+</body>
+</html>
