@@ -1328,19 +1328,8 @@ async function api(
   ){
     return;
   }
-if(
-  u.pathname==='/api/weather'
-  &&
-  hitRateLimit(
-    req,
-    res,
-    'weather',
-    120,
-    60_000
-  )
-){
-  return;
-}
+// Weather is requested frequently by the simulation/UI.
+// Do not apply the generic external API rate limiter here.
   if(
     [
       '/api/wildfires',
