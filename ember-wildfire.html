@@ -3018,22 +3018,31 @@ function applyGeoCandidate(useAsIgnition=false) {
 }
 function landscapeStatusHtml() {
   if (realLandscape.loading || realRoads.loading || realPlaces.loading || liveWeather.loading || realFires.loading || realHotspots.loading) return '<b>Stage 8:</b> loading geographic datasets, weather and fire observations…';
-  const landOK=realLandscape.ready && realLandscape.key===realLandscapeKey();
+
+  const landscapeKeyOK=realLandscape.ready && realLandscape.key===realLandscapeKey();
+  const terrainOK=landscapeKeyOK && realLandscape.elevationSource==='AWS Terrain Tiles';
+  const landCoverOK=landscapeKeyOK && realLandscape.fuelSource==='OpenStreetMap proxy';
   const roadOK=realRoads.ready && realRoads.key===roadNetworkKey();
   const placeOK=realPlaces.ready && realPlaces.key===placeDataKey();
   const weatherOK=liveWeather.ready && liveWeather.key===weatherKey();
   const firesOK=realFires.ready && realFires.key===fireFeedKey();
   const hotspotsOK=realHotspots.ready && realHotspots.key===hotspotFeedKey();
-  if (landOK || roadOK || placeOK || weatherOK || firesOK || hotspotsOK) {
+
+  if (terrainOK || landCoverOK || roadOK || placeOK || weatherOK || firesOK || hotspotsOK) {
     const cov=Math.round(realLandscape.osmCoverage*100);
-    const landTxt=landOK ? `Elevation: ${esc(realLandscape.elevationSource)}. Fuel: ${esc(realLandscape.fuelSource)}${realLandscape.fuelSource==='OpenStreetMap proxy'?` (${cov}% tagged)`:''}.` : 'Terrain: synthetic fallback.';
+    const terrainTxt=terrainOK
+      ? `Terrain: real elevation (${esc(realLandscape.elevationSource)}).`
+      : 'Terrain: synthetic fallback.';
+    const landCoverTxt=landCoverOK
+      ? `Land cover: OpenStreetMap fuel proxy (${cov}% tagged).`
+      : 'Land cover: synthetic fuel fallback.';
     const roadTxt=roadOK ? `Roads: OpenStreetMap (${realRoads.edges.toLocaleString()} links, ${realRoads.km.toFixed(1)} km).` : 'Roads: synthetic fallback.';
     const placeTxt=placeOK ? `Communities: ${realPlaces.communities} mapped. Population: ${fmtN(realPlaces.mappedPopulation)} tagged + ${fmtN(realPlaces.estimatedPopulation)} estimated. Evacuation sites: ${realPlaces.sites} mapped (${realPlaces.officialSites} explicitly tagged emergency shelters).` : 'Communities/sites: synthetic fallback.';
     const weatherTxt=weatherOK ? `Weather: Open-Meteo forecast snapshot (${esc(liveWeather.hourly[liveWeather.selected]?.timeLabel||'selected hour')}).` : 'Weather: manual fallback.';
     const fireTxt=firesOK ? `Incidents: NASA EONET (${realFires.events.length} open event${realFires.events.length===1?'':'s'} within ${realFires.radiusKm} km).` : 'Incidents: manual fallback.';
     const hotspotTxt=hotspotsOK ? ` Hotspots: NASA FIRMS (${realHotspots.hotspots.length} ${esc(realHotspots.source)} thermal detections).` : (realHotspots.configured===false?' Hotspots: FIRMS key not configured.':' Hotspots: FIRMS fallback.');
     const warns=[realLandscape.lastError,realRoads.lastError,realPlaces.lastError,liveWeather.lastError,realFires.lastError,realHotspots.lastError].filter(Boolean).map(x=>`<br><span style="color:var(--warning)">${esc(x)}</span>`).join('');
-    return `<b>Stage 8 active.</b> ${landTxt} ${roadTxt} ${placeTxt} ${weatherTxt} ${fireTxt}${hotspotTxt}${warns}<br><b>FIRMS points are satellite thermal anomalies, not automatic confirmation of wildfire. EONET supplies incident metadata. Weather is a forecast/model snapshot; 10 m wind is a proxy for 20-ft wind. Candidate facilities and planning population estimates require verification. Not for emergency decisions.</b>`;
+    return `<b>Stage 8 active.</b> ${terrainTxt} ${landCoverTxt} ${roadTxt} ${placeTxt} ${weatherTxt} ${fireTxt}${hotspotTxt}${warns}<br><b>FIRMS points are satellite thermal anomalies, not automatic confirmation of wildfire. EONET supplies incident metadata. Weather is a forecast/model snapshot; 10 m wind is a proxy for 20-ft wind. Candidate facilities and planning population estimates require verification. Not for emergency decisions.</b>`;
   }
   return '<b>Stage 8 ready:</b> real terrain, OSM context, weather, EONET incidents and optional NASA FIRMS satellite hotspots through the backend. <b>Not for emergency decisions.</b>';
 }
@@ -3042,10 +3051,21 @@ function updateLandscapeStatus(msg) {
 }
 async function refreshRealData(centeredOnIncident=false) {
   const busy=$('#busy'); if(busy) busy.classList.add('on'); updateLandscapeStatus('Loading geographic data and weather…');
-  let landOK=false, roadsOK=false, placesOK=false, weatherOK=false, firesOK=false, hotspotsOK=false;
+  let terrainOK=false, landCoverOK=false, roadsOK=false, placesOK=false, weatherOK=false, firesOK=false, hotspotsOK=false;
   try {
-    try { await loadRealLandscape(m=>updateLandscapeStatus(m)); landOK=true; }
-    catch(e) { console.warn('Real landscape load failed',e); realLandscape.ready=false; buildLandscape(scenario.seed); }
+    try {
+      await loadRealLandscape(m=>updateLandscapeStatus(m));
+      const landscapeKeyOK=realLandscape.ready && realLandscape.key===realLandscapeKey();
+      terrainOK=landscapeKeyOK && realLandscape.elevationSource==='AWS Terrain Tiles';
+      landCoverOK=landscapeKeyOK && realLandscape.fuelSource==='OpenStreetMap proxy';
+    }
+    catch(e) {
+      console.warn('Real landscape load failed',e);
+      realLandscape.ready=false;
+      realLandscape.elevationSource='synthetic';
+      realLandscape.fuelSource='synthetic fallback';
+      buildLandscape(scenario.seed);
+    }
 
     buildNetwork(scenario.seed);
     try { await loadRealRoadNetwork(m=>updateLandscapeStatus(m)); roadsOK=true; }
@@ -3061,9 +3081,17 @@ async function refreshRealData(centeredOnIncident=false) {
 
     dirtyLandscape=false; computeSpreadField(); if(!centeredOnIncident) placeDefaultIgnition(); else { const p=latLonToCell(scenario.centerLat,scenario.centerLon),x=clamp(Math.round(p.x),0,N-1),y=clamp(Math.round(p.y),0,N-1); scenario.ignition=[{x,y}]; } computeArrival(); stampFireTimes(); planEvacuation();
     paintTerrain(); paintIso(); buildLeft(); syncWind(); fullUpdate(); updateLandscapeStatus();
-    if(!landOK||!roadsOK||!placesOK||!weatherOK||!firesOK) {
-      const miss=[!landOK?'terrain/land-cover':null,!roadsOK?'roads':null,!placesOK?'communities/evacuation sites':null,!weatherOK?'weather':null,!firesOK?'wildfire incidents':null].filter(Boolean).join(', ');
-      alert(`Some real-world data (${miss}) could not be loaded, so Ember kept a fallback for that layer. The rest of the scenario is still usable.`);
+
+    const fallbackLayers=[
+      !terrainOK?'terrain':null,
+      !landCoverOK?'land cover':null,
+      !roadsOK?'roads':null,
+      !placesOK?'communities/evacuation sites':null,
+      !weatherOK?'weather':null,
+      !firesOK?'wildfire incidents':null
+    ].filter(Boolean);
+    if(fallbackLayers.length) {
+      console.warn('Real-data fallbacks active:',fallbackLayers.join(', '));
     }
   } finally { if(busy) busy.classList.remove('on'); }
 }
