@@ -11,14 +11,10 @@ services:
       - key: HOST
         value: 0.0.0.0
       - key: DATA_DIR
-        value: /app/data
+        value: /tmp/ember-data
       - key: TRUST_PROXY
         value: 1
       - key: COOKIE_SECURE
         value: 1
       - key: FIRMS_MAP_KEY
         sync: false
-    disk:
-      name: ember-data
-      mountPath: /app/data
-      sizeGB: 1
